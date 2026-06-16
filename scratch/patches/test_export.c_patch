@@ -1,0 +1,11 @@
+--- Makefile
++++ Makefile
+@@ -19,7 +19,7 @@
+ 	$(CC) $(CFLAGS) -c -o $@ $<
+ 
+ $(BUILD_DIR)/curica: $(OBJS)
+-	$(CC) $(CFLAGS) -o $@ $(OBJS) -lm
++	$(CC) $(CFLAGS) -Wl,--export-dynamic -o $@ $(OBJS) -lm
+ 	cp $@ $(BUILD_DIR)/vm_base
+ 
+ clean:

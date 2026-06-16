@@ -1,0 +1,22 @@
+--- src/alloc.c
++++ src/alloc.c
+@@ -479,7 +479,15 @@
+         *props_ptr = new_props;
+         *cap_ptr = new_cap;
+     }
++    (*props_ptr)[*count_ptr].key = key_val;
++    (*props_ptr)[*count_ptr].value = value_val;
++    (*count_ptr)++;
++}
++
++Value create_function(struct CompiledProgram* prog, uint32_t offset, uint32_t regs, uint32_t params, bool is_async, Value env, Value name) {
++    JSFunction* f = arena_alloc(OBJ_FUNCTION, sizeof(JSFunction));
++    f->prog = prog;
++    f->bytecode_offset = offset;
++    f->register_count = regs;
++    f->param_count = params;
++    f->is_async = is_async;
++    f->env = env;
+     f->name = name;
+     f->native_ptr = NULL;
+     f->properties = NULL;

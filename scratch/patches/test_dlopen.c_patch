@@ -1,0 +1,35 @@
+--- src/builtins.c
++++ src/builtins.c
+@@ -767,11 +767,13 @@
+     JSString* filename_str = (JSString*)get_pointer(filename_val);
+     
+     // Load the shared library
++    printf("js_process_dlopen: calling cosmo_dlopen\n");
+     void* handle = cosmo_dlopen(filename_str->data, RTLD_LAZY);
+     if (!handle) {
+         printf("dlopen failed for %s: %s\n", filename_str->data, cosmo_dlerror());
+         return VAL_UNDEFINED;
+     }
++    printf("js_process_dlopen: handle=%p\n", handle);
+     
+     // Lookup module registration function
+     typedef Value (*NapiRegisterFunc)(VM* env, Value exports);
+@@ -779,6 +781,7 @@
+     
+     if (!reg_func) {
+         printf("Symbol napi_register_module_v1 not found in %s\n", filename_str->data);
+         return VAL_UNDEFINED;
+     }
++    printf("js_process_dlopen: reg_func=%p\n", reg_func);
+     
+     // Initialize the module exports
+     Value exports_key = create_string("exports", 7);
+@@ -786,7 +789,9 @@
+     
+     // Invoke N-API entry point
++    printf("js_process_dlopen: invoking reg_func\n");
+     Value new_exports = reg_func(vm, exports_obj);
++    printf("js_process_dlopen: done\n");
+     
+     return new_exports;
+ }

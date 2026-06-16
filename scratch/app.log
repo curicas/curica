@@ -1,0 +1,19 @@
+Inside events.js, EventEmitter.prototype: [object Object]
+DEBUG make_bound_fn 'listen': f=0x400000c760 set env=0xfff9000000000000 IS_INTEGER=1
+DEBUG make_bound_fn 'address': f=0x400000c7c8 set env=0xfff9000000000001 IS_INTEGER=1
+DEBUG make_bound_fn 'close': f=0x400000c830 set env=0xfff9000000000002 IS_INTEGER=1
+Feature Manager server listening on port 44887
+Launching Native WebView on http://127.0.0.1:44887/
+Native UI Process spawned with PID: 55303
+DEBUG make_bound_fn 'on': f=0x400000ccf0 set env=0xfff9000000000003 IS_INTEGER=1
+DEBUG make_bound_fn 'write': f=0x400000cd58 set env=0xfff9000000000004 IS_INTEGER=1
+DEBUG make_bound_fn 'end': f=0x400000cdc0 set env=0xfff9000000000005 IS_INTEGER=1
+DEBUG make_bound_fn 'destroy': f=0x400000ce28 set env=0xfff9000000000006 IS_INTEGER=1
+DEBUG js_socket_on: this_val=0xfff9000000000003 IS_INTEGER=1 arg_count=2
+DEBUG js_socket_on: s=0x1000801edfb0 arg_count=2
+DEBUG js_socket_on: event='data' cb IS_POINTER=1
+DEBUG socket_io_cb: revents=0x1 fd=18
+DEBUG socket_io_cb POLLIN: n=79 errno=0
+DEBUG socket_io_cb calling on_data callback...
+DEBUG socket_io_cb: revents=0x11 fd=18
+DEBUG socket_io_cb POLLIN: n=0 errno=0

@@ -1,0 +1,11 @@
+--- src/vm.c
++++ src/vm.c
+@@ -1553,6 +1553,8 @@
+             } else if (h->obj_type == OBJ_BUFFER) {
+                 JSBuffer* buf = (JSBuffer*)get_pointer(obj);
+                 int32_t idx = -1;
++                printf("DEBUG: prop type = int:%d, double:%d, ptr:%d\n", IS_INTEGER(prop), IS_DOUBLE(prop), IS_POINTER(prop));
++                
+                 if (IS_INTEGER(prop)) idx = get_integer(prop);
+                 else if (IS_DOUBLE(prop)) idx = (int32_t)get_double(prop);
+                 else if (IS_POINTER(prop)) {

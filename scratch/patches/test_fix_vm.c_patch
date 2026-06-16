@@ -1,0 +1,16 @@
+--- src/vm.c
++++ src/vm.c
+@@ -59,16 +59,16 @@
+ 
+ JSFunction* g_current_native_function = NULL;
+ 
+-void vm_throw_error(VM* vm, Value error_val) {
++void vm_throw_error(VM* vm, Value error) {
+     if (vm->error_handler && vm->error_handler->active) {
+-        vm->error_handler->error = error_val;
++        vm->error_handler->error = error;
+         longjmp(vm->error_handler->jmp, 1);
+     } else {
+         fprintf(stderr, "Uncaught Error: ");
+         
+         if (IS_POINTER(error)) {

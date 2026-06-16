@@ -1,0 +1,10 @@
+build/
+cosmocc/
+*.curi
+*.cbc
+*.com
+*.com.dbg
+*.aarch64.elf
+test_binary
+test_webview*.js
+out.curi

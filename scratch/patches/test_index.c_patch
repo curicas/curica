@@ -1,0 +1,10 @@
+--- src/vm.c
++++ src/vm.c
+@@ -1565,6 +1565,7 @@
+                 }
+                 
+                 if (idx >= 0) {
++                    printf("idx=%d length=%d data=%d\n", idx, buf->length, buf->data[idx]);
+                     regs[a] = (idx < (int32_t)buf->length) ? make_integer(buf->data[idx]) : VAL_UNDEFINED;
+                     NEXT();
+                 }

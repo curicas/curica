@@ -1,0 +1,1 @@
+function __wrapper__() {}

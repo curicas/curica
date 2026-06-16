@@ -1,0 +1,10 @@
+{
+  "name": "Curica Runtime",
+  "version": 1.5,
+  "stable": true,
+  "tags": ["js", "runtime", "ape"],
+  "config": {
+    "port": 8080,
+    "debug": false
+  }
+}

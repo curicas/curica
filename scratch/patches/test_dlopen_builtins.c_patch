@@ -1,0 +1,10 @@
+--- src/builtins.c
++++ src/builtins.c
+@@ -748,6 +748,7 @@
+     }
+     JSBuffer* buf = (JSBuffer*)ptr;
+     // Fast copy to string
+     return create_string_from_chars((const char*)buf->data, buf->length);
++}
+ 
+ // process.dlopen(module, filename)

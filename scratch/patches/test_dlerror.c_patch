@@ -1,0 +1,11 @@
+--- src/builtins.c
++++ src/builtins.c
+@@ -767,7 +767,7 @@
+     // Load the shared library
+     void* handle = cosmo_dlopen(filename_str->data, 0); // RTLD_LAZY | RTLD_LOCAL equivalent?
+     if (!handle) {
+-        printf("dlopen failed for %s\n", filename_str->data);
++        printf("dlopen failed for %s: %s\n", filename_str->data, cosmo_dlerror());
+         return VAL_UNDEFINED;
+     }
+ 
