@@ -1,13 +1,3 @@
-function decodeURIComponent(str) {
-    if (!str) return '';
-    return str.split('%20').join(' '); // Basic stub
-}
-
-function encodeURIComponent(str) {
-    if (!str) return '';
-    return str.split(' ').join('%20'); // Basic stub
-}
-
 function URLSearchParams(init) {
     this._params = [];
     if (init && init.split) {

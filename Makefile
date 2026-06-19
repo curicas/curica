@@ -11,7 +11,7 @@ else
 endif
 
 CFLAGS ?= -g -O0 $(WARNING_FLAGS) -std=gnu99 -Isrc -Ithird_party/mbedtls/include -Ithird_party/sqlite -Ithird_party/wamr/core/iwasm/include -DMBEDTLS_ALLOW_PRIVATE_ACCESS -DCURICA_VERSION=\"$(CURICA_VERSION)\"
-SRCS := src/alloc.c src/compiler.c src/vm.c src/builtins.c src/slre.c src/event_loop.c src/napi.c src/fs_module.c src/vfs_module.c src/thread_pool.c src/net_module.c src/dgram_module.c src/zlib_module.c src/os_module.c src/crypto_module.c src/child_process_module.c src/worker_module.c src/http_module.c src/websocket_module.c src/sqlite_module.c src/wasm_module.c src/wasi_module.c src/ts_stripper.c src/formatter.c src/repl.c src/main.c src/kv_store.c src/worker_threads_module.c src/webview_module.c
+SRCS := src/alloc.c src/compiler.c src/vm.c src/builtins.c src/slre.c src/event_loop.c src/napi.c src/fs_module.c src/vfs_module.c src/thread_pool.c src/net_module.c src/dgram_module.c src/zlib_module.c src/os_module.c src/crypto_module.c src/child_process_module.c src/worker_module.c src/http_module.c src/websocket_module.c src/sqlite_module.c src/wasm_module.c src/wasi_module.c src/ts_stripper.c src/formatter.c src/repl.c src/main.c src/kv_store.c src/worker_threads_module.c src/webview_module.c src/ffi_module.c src/atomics.c
 JS_SRCS := $(wildcard src/js/*.js)
 BUILD_DIR := build
 OBJS := $(patsubst src/%.c,$(BUILD_DIR)/%.o,$(SRCS))

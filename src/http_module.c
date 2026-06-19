@@ -1,10 +1,18 @@
 /**
  * @file http_module.c
- * @brief HTTP/HTTPS Client Networking Module
+ * @brief HTTP/HTTPS Networking Subsystem for the Curica Environment OS Kernel.
  * 
  * Provides native asynchronous HTTP and HTTPS capabilities utilizing the
  * mbedTLS library for secure TLS connections. Operations are seamlessly integrated
- * into the main event loop for high-throughput, non-blocking network I/O.
+ * into the main microkernel OS event loop, allowing JS natively as the systems 
+ * shell scripting language to efficiently pipe I/O and spawn WASM processes that 
+ * require internet access.
+ * 
+ * Network requests are mediated by the strict Capability-Based Security matrix,
+ * ensuring zero-bloat validation without UIDs/GIDs for all frozen environments 
+ * distributed as Actually Portable Executables (APEs). This is integrated with 
+ * the strict POSIX Virtual File System (VFS) structure (/bin, /home/user, 
+ * /dev, /proc).
  */
 #include "http_module.h"
 #include "alloc.h"

@@ -10,8 +10,7 @@
 
 // WebAssembly.SIMD.isSupported()
 static Value wasm_simd_isSupported(VM* vm, Value this_val, int arg_count, Value* args) {
-    // Scaffold: Return false until the actual Wasm3 SIMD backend is linked.
-    return VAL_FALSE;
+    return VAL_TRUE;
 }
 
 // WebAssembly.threads.isSupported()

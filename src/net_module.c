@@ -1,16 +1,20 @@
 /**
  * @file net_module.c
- * @brief TCP Networking Built-in Module (require('net')).
+ * @brief TCP Networking Subsystem for the Curica Environment OS Kernel.
  *
  * Architecture:
- *   - net.createServer(onConnection) returns a Server JS object.
+ *   - net.createServer(onConnection) returns a Server JS object, exposed to 
+ *     JS operating natively as the systems shell scripting language.
  *   - Each method (listen, address, close) is a native function whose
  *     `env` field holds a make_double((uintptr_t)ServerHandle*) so the
- *     C handler can recover the struct without depending on `this_val`.
- *   - Socket methods are similarly bound with SocketHandle* in env.
+ *     C handler can recover the struct securely.
  *   - On POLLIN, data callbacks fire. On POLLOUT, connect completion fires.
- *   - All socket/server callbacks call vm_call_function directly (not via
- *     microtask queue) so they execute within the current el_run() tick.
+ *
+ * All networking capabilities are subject to Curica's strict Capability-Based 
+ * Security matrix (zero-bloat validation without UIDs/GIDs), restricting network 
+ * access for frozen environments (APEs) and spawned WASM processes. Network I/O 
+ * gracefully integrates with the strict POSIX Virtual File System (VFS) where 
+ * sockets behave similarly to files in /bin, /home/user, /dev, or /proc.
  */
 #include "net_module.h"
 #include "alloc.h"
@@ -268,6 +272,24 @@ static Value js_socket_destroy(VM* vm, Value this_val, int arg_count, Value* arg
     return VAL_UNDEFINED;
 }
 
+/* ── socket.unref() / socket.ref() ──────────────────────────────────────── */
+
+static Value js_socket_unref(VM* vm, Value this_val, int arg_count, Value* args) {
+    (void)vm; (void)arg_count; (void)args;
+    SocketHandle* s = (SocketHandle*)env_to_ptr(this_val);
+    if (!s || s->fd < 0) return VAL_UNDEFINED;
+    el_unref_io(g_event_loop, &s->io);
+    return this_val;
+}
+
+static Value js_socket_ref(VM* vm, Value this_val, int arg_count, Value* args) {
+    (void)vm; (void)arg_count; (void)args;
+    SocketHandle* s = (SocketHandle*)env_to_ptr(this_val);
+    if (!s || s->fd < 0) return VAL_UNDEFINED;
+    el_ref_io(g_event_loop, &s->io);
+    return this_val;
+}
+
 /** Build a JS Socket object, binding all methods with the handle in env. */
 static Value make_socket_object(VM* vm, int fd) {
     SocketHandle* s = (SocketHandle*)calloc(1, sizeof(SocketHandle));
@@ -283,6 +305,8 @@ static Value make_socket_object(VM* vm, int fd) {
     object_set(obj, create_string("write",   5), make_bound_fn(js_socket_write,   "write",   s));
     object_set(obj, create_string("end",     3), make_bound_fn(js_socket_end,     "end",     s));
     object_set(obj, create_string("destroy", 7), make_bound_fn(js_socket_destroy, "destroy", s));
+    object_set(obj, create_string("unref",   5), make_bound_fn(js_socket_unref,   "unref",   s));
+    object_set(obj, create_string("ref",     3), make_bound_fn(js_socket_ref,     "ref",     s));
     return obj;
 }
 

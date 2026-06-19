@@ -1,10 +1,14 @@
 /**
  * @file vfs_module.c
- * @brief Virtual File System (VFS) Router
+ * @brief Virtual File System (VFS) Kernel Router
  * 
- * Intercepts POSIX file system access and dynamically routes standard file
- * operations into the internal zip payload (for read-only assets) or the
- * local host OS file system (for read/write persistence disks).
+ * Intercepts POSIX file system access originating from WASM and JS user-space
+ * processes. Dynamically routes standard file operations enforcing a strict 
+ * POSIX FHS compliance (e.g. /bin, /usr, /home/user).
+ * 
+ * Handles reading from the frozen internal zip payload (APE), 
+ * dynamic host overlays mounted via `--attach`, and manages
+ * in-memory volatile tmpfs ramdisks.
  */
 #include "vfs_module.h"
 #include <stdio.h>

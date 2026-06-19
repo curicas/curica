@@ -34,7 +34,9 @@ static Value js_database_constructor(VM* vm, Value this_val, int arg_count, Valu
     int rc = sqlite3_open(filename->data, &db);
     if (rc != SQLITE_OK) {
         printf("SQLite Error: %s\n", sqlite3_errmsg(db));
+        Value err = create_system_error(vm, rc, "sqlite3_open", sqlite3_errmsg(db));
         if (db) sqlite3_close(db);
+        vm_throw_error(vm, err);
         return VAL_UNDEFINED;
     }
 
@@ -141,9 +143,11 @@ static Value js_sqlite_exec(VM* vm, Value this_val, int arg_count, Value* args) 
     int rc = sqlite3_exec(db, sql->data, NULL, NULL, &err_msg);
     if (rc != SQLITE_OK) {
         printf("SQLite Exec Error: %s\n", err_msg);
+        Value err = create_system_error(vm, rc, "sqlite3_exec", err_msg);
         sqlite3_free(err_msg);
         vm_pop_root(vm); // this_val
-        return VAL_UNDEFINED; // TODO: throw SystemError
+        vm_throw_error(vm, err);
+        return VAL_UNDEFINED;
     }
     
     Value ret_val = vm->gc_roots[this_idx];
@@ -176,7 +180,9 @@ static Value js_sqlite_prepare(VM* vm, Value this_val, int arg_count, Value* arg
     int rc = sqlite3_prepare_v2(db, sql->data, -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
         printf("SQLite Prepare Error: %s\n", sqlite3_errmsg(db));
+        Value err = create_system_error(vm, rc, "sqlite3_prepare_v2", sqlite3_errmsg(db));
         vm_pop_root(vm); // this_val
+        vm_throw_error(vm, err);
         return VAL_UNDEFINED;
     }
 

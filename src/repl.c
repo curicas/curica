@@ -18,6 +18,7 @@
 #include "alloc.h"
 #include "wasm_export.h"
 #include "wasm_module.h"
+#include "event_loop.h"
 
 static void execute_wasm_command(char* line) {
     if (!ensure_wamr_initialized()) {
@@ -50,6 +51,9 @@ void repl_start(void) {
     printf("Type '.help' for more information.\n");
 
     arena_init(32);
+    EventLoop loop;
+    el_init(&loop);
+    
     VM vm;
     vm_init(&vm);
     

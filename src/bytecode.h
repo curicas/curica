@@ -86,6 +86,9 @@ typedef enum {
     OP_ITER_NEXT,        // A B    regs[A] = regs[B].next()  (iterator protocol)
     OP_FOR_IN_NEXT,      // A B C  regs[A]=key, regs[B]=done; C=obj key index register
     OP_GET_ITER,         // A B    regs[A] = regs[B][Symbol.iterator]()
+    OP_GET_ASYNC_ITER,   // A B    regs[A] = regs[B][Symbol.asyncIterator]()
+    OP_ASYNC_ITER_NEXT,  // A B    regs[A] = regs[B].next() (returns Promise)
+    OP_UNPACK_ITER_RES,  // A B C  regs[A] = regs[C].value, regs[B] = regs[C].done
 
     OP_PRINT,            // A      print(regs[A])
     OP_AWAIT,            // A B    await regs[B], result into regs[A]

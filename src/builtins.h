@@ -37,6 +37,8 @@ Value js_array_to_string(VM* vm, Value this_val, int arg_count, Value* args);
 Value js_error_constructor(VM* vm, Value this_val, int arg_count, Value* args);
 Value js_global_is_finite(VM* vm, Value this_val, int arg_count, Value* args);
 Value js_global_is_nan(VM* vm, Value this_val, int arg_count, Value* args);
+Value js_global_encode_uri_component(VM* vm, Value this_val, int arg_count, Value* args);
+Value js_global_decode_uri_component(VM* vm, Value this_val, int arg_count, Value* args);
 Value js_json_parse(VM* vm, Value this_val, int arg_count, Value* args);
 Value js_json_stringify(VM* vm, Value this_val, int arg_count, Value* args);
 Value js_math_abs(VM* vm, Value this_val, int arg_count, Value* args);

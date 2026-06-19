@@ -1,9 +1,17 @@
 /**
  * @file builtins.c
- * @brief Core JavaScript Global Built-ins and Node.js Shims.
+ * @brief Core JavaScript Systems Shell Built-ins.
  * 
- * Implements standard JS global objects (console, Promise, Error, etc.), 
- * CommonJS require() injection, and Native C-to-JS boundaries.
+ * Under the new Curica Environment OS Kernel paradigm, JS operates natively as 
+ * the systems shell scripting language. This file implements standard global 
+ * objects, CommonJS require() injection, and native C-to-JS boundaries, allowing 
+ * shell scripts to safely pipe I/O, spawn WASM processes, and interact with the 
+ * strict POSIX Virtual File System (VFS), including /bin, /home/user, and 
+ * pseudo-filesystems (/dev, /proc).
+ *
+ * All built-in capabilities are governed by a strict Capability-Based Security 
+ * matrix (zero-bloat validation without UIDs/GIDs), ensuring secure execution 
+ * when deployed as frozen environments within Actually Portable Executables (APEs).
  */
 #include "builtins.h"
 #include "alloc.h"
@@ -27,32 +35,86 @@
 #include <libc/dlopen/dlfcn.h>
 #include "event_loop.h"
 #include "compiler.h"
-
-
+#include <regex.h>
+#include <ctype.h>
 
 Value js_array_at(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; if (!IS_POINTER(this_val) || arg_count < 1) return VAL_UNDEFINED;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return VAL_UNDEFINED;
+    JSArray* arr = (JSArray*)get_pointer(this_val);
+    int32_t idx = IS_INTEGER(args[0]) ? get_integer(args[0]) : IS_DOUBLE(args[0]) ? (int32_t)get_double(args[0]) : 0;
+    if (idx < 0) idx = arr->length + idx;
+    if (idx < 0 || idx >= (int32_t)arr->length) return VAL_UNDEFINED;
+    return arr->elements[idx];
 }
 
 Value js_array_concat_method(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    if (!IS_POINTER(this_val)) return VAL_UNDEFINED;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return VAL_UNDEFINED;
+    uint32_t res_idx = vm->gc_root_count; vm_push_root(vm, create_array(8));
+    uint32_t this_idx = vm->gc_root_count; vm_push_root(vm, this_val);
+    JSArray* arr = (JSArray*)get_pointer(vm->gc_roots[this_idx]);
+    for (uint32_t i = 0; i < arr->length; i++) array_push(vm->gc_roots[res_idx], arr->elements[i]);
+    for (int j = 0; j < arg_count; j++) {
+        if (IS_POINTER(args[j])) {
+            BlockHeader* ah = (BlockHeader*)((char*)get_pointer(args[j]) - sizeof(BlockHeader));
+            if (ah->obj_type == OBJ_ARRAY) {
+                JSArray* a2 = (JSArray*)get_pointer(args[j]);
+                for (uint32_t k = 0; k < a2->length; k++) array_push(vm->gc_roots[res_idx], a2->elements[k]);
+            } else { array_push(vm->gc_roots[res_idx], args[j]); }
+        } else { array_push(vm->gc_roots[res_idx], args[j]); }
+    }
+    Value r = vm->gc_roots[res_idx]; vm_pop_root(vm); vm_pop_root(vm); return r;
 }
 
 Value js_array_constructor(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count == 1 && (IS_INTEGER(args[0]) || IS_DOUBLE(args[0]))) {
+        int32_t len = IS_INTEGER(args[0]) ? get_integer(args[0]) : (int32_t)get_double(args[0]);
+        if (len < 0) len = 0;
+        Value arr_val = create_array(len);
+        JSArray* arr = (JSArray*)get_pointer(arr_val);
+        arr->length = len;
+        for (int32_t i = 0; i < len; i++) arr->elements[i] = VAL_UNDEFINED;
+        return arr_val;
+    }
+    Value arr_val = create_array(arg_count > 0 ? arg_count : 1);
+    for (int i = 0; i < arg_count; i++) {
+        array_push(arr_val, args[i]);
+    }
+    return arr_val;
 }
 
 Value js_array_every(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    if (!IS_POINTER(this_val) || arg_count < 1 || !IS_POINTER(args[0])) return VAL_TRUE;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return VAL_TRUE;
+    uint32_t ti = vm->gc_root_count; vm_push_root(vm, this_val);
+    uint32_t ci = vm->gc_root_count; vm_push_root(vm, args[0]);
+    JSArray* arr = (JSArray*)get_pointer(vm->gc_roots[ti]);
+    uint32_t len = arr->length;
+    for (uint32_t i = 0; i < len; i++) {
+        arr = (JSArray*)get_pointer(vm->gc_roots[ti]);
+        Value cb_args[3] = { arr->elements[i], make_integer(i), vm->gc_roots[ti] };
+        Value res = vm_call_function(vm, vm->gc_roots[ci], 3, cb_args);
+        if (!is_truthy(res)) { vm_pop_root(vm); vm_pop_root(vm); return VAL_FALSE; }
+    }
+    vm_pop_root(vm); vm_pop_root(vm); return VAL_TRUE;
 }
 
 Value js_array_fill(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; if (!IS_POINTER(this_val) || arg_count < 1) return this_val;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return this_val;
+    JSArray* arr = (JSArray*)get_pointer(this_val);
+    int32_t start = 0; int32_t end = arr->length;
+    if (arg_count >= 2 && IS_INTEGER(args[1])) start = get_integer(args[1]);
+    if (arg_count >= 3 && IS_INTEGER(args[2])) end = get_integer(args[2]);
+    if (start < 0) start = 0; if (end > (int32_t)arr->length) end = arr->length;
+    for (int32_t i = start; i < end; i++) arr->elements[i] = args[0];
+    return this_val;
 }
 
 Value js_array_find(VM* vm, Value this_val, int arg_count, Value* args) {
@@ -77,43 +139,184 @@ Value js_array_find(VM* vm, Value this_val, int arg_count, Value* args) {
 }
 
 Value js_array_find_index(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    if (!IS_POINTER(this_val) || arg_count < 1 || !IS_POINTER(args[0])) return make_integer(-1);
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return make_integer(-1);
+    uint32_t ti = vm->gc_root_count; vm_push_root(vm, this_val);
+    uint32_t ci = vm->gc_root_count; vm_push_root(vm, args[0]);
+    JSArray* arr = (JSArray*)get_pointer(vm->gc_roots[ti]);
+    uint32_t len = arr->length;
+    for (uint32_t i = 0; i < len; i++) {
+        arr = (JSArray*)get_pointer(vm->gc_roots[ti]);
+        Value cb_args[3] = { arr->elements[i], make_integer(i), vm->gc_roots[ti] };
+        Value res = vm_call_function(vm, vm->gc_roots[ci], 3, cb_args);
+        if (is_truthy(res)) { vm_pop_root(vm); vm_pop_root(vm); return make_integer(i); }
+    }
+    vm_pop_root(vm); vm_pop_root(vm); return make_integer(-1);
 }
 
 Value js_array_flat(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)arg_count; (void)args;
+    if (!IS_POINTER(this_val)) return VAL_UNDEFINED;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return VAL_UNDEFINED;
+    uint32_t ri = vm->gc_root_count; vm_push_root(vm, create_array(8));
+    uint32_t ti = vm->gc_root_count; vm_push_root(vm, this_val);
+    JSArray* arr = (JSArray*)get_pointer(vm->gc_roots[ti]);
+    for (uint32_t i = 0; i < arr->length; i++) {
+        Value el = arr->elements[i];
+        if (IS_POINTER(el)) {
+            BlockHeader* eh = (BlockHeader*)((char*)get_pointer(el) - sizeof(BlockHeader));
+            if (eh->obj_type == OBJ_ARRAY) {
+                JSArray* ea = (JSArray*)get_pointer(el);
+                for (uint32_t k = 0; k < ea->length; k++) array_push(vm->gc_roots[ri], ea->elements[k]);
+                continue;
+            }
+        }
+        array_push(vm->gc_roots[ri], el);
+    }
+    Value r = vm->gc_roots[ri]; vm_pop_root(vm); vm_pop_root(vm); return r;
 }
 
 Value js_array_flat_map(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    if (!IS_POINTER(this_val) || arg_count < 1 || !IS_POINTER(args[0])) return VAL_UNDEFINED;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return VAL_UNDEFINED;
+    uint32_t ti = vm->gc_root_count; vm_push_root(vm, this_val);
+    uint32_t ci = vm->gc_root_count; vm_push_root(vm, args[0]);
+    uint32_t ri = vm->gc_root_count; vm_push_root(vm, create_array(8));
+    JSArray* arr = (JSArray*)get_pointer(vm->gc_roots[ti]);
+    uint32_t len = arr->length;
+    for (uint32_t i = 0; i < len; i++) {
+        arr = (JSArray*)get_pointer(vm->gc_roots[ti]);
+        Value cb_args[3] = { arr->elements[i], make_integer(i), vm->gc_roots[ti] };
+        Value mapped = vm_call_function(vm, vm->gc_roots[ci], 3, cb_args);
+        if (IS_POINTER(mapped)) {
+            BlockHeader* mh = (BlockHeader*)((char*)get_pointer(mapped) - sizeof(BlockHeader));
+            if (mh->obj_type == OBJ_ARRAY) {
+                JSArray* ma = (JSArray*)get_pointer(mapped);
+                for (uint32_t j = 0; j < ma->length; j++) {
+                    array_push(vm->gc_roots[ri], ma->elements[j]);
+                }
+                continue;
+            }
+        }
+        array_push(vm->gc_roots[ri], mapped);
+    }
+    Value r = vm->gc_roots[ri]; vm_pop_root(vm); vm_pop_root(vm); vm_pop_root(vm); return r;
 }
 
 Value js_array_for_each(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    if (!IS_POINTER(this_val) || arg_count < 1 || !IS_POINTER(args[0])) return VAL_UNDEFINED;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return VAL_UNDEFINED;
+    uint32_t ti = vm->gc_root_count; vm_push_root(vm, this_val);
+    uint32_t ci = vm->gc_root_count; vm_push_root(vm, args[0]);
+    JSArray* arr = (JSArray*)get_pointer(vm->gc_roots[ti]);
+    uint32_t len = arr->length;
+    for (uint32_t i = 0; i < len; i++) {
+        arr = (JSArray*)get_pointer(vm->gc_roots[ti]);
+        Value cb_args[3] = { arr->elements[i], make_integer(i), vm->gc_roots[ti] };
+        vm_call_function(vm, vm->gc_roots[ci], 3, cb_args);
+    }
+    vm_pop_root(vm); vm_pop_root(vm); return VAL_UNDEFINED;
 }
 
 Value js_array_from(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)this_val;
+    if (arg_count < 1 || !IS_POINTER(args[0])) return create_array(0);
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(args[0]) - sizeof(BlockHeader));
+    Value map_fn = arg_count >= 2 ? args[1] : VAL_UNDEFINED;
+    bool has_map = IS_POINTER(map_fn);
+    
+    uint32_t ai = vm->gc_root_count; vm_push_root(vm, args[0]);
+    uint32_t mi = vm->gc_root_count; vm_push_root(vm, map_fn);
+    uint32_t ri = vm->gc_root_count; vm_push_root(vm, create_array(8));
+    
+    if (h->obj_type == OBJ_ARRAY) {
+        JSArray* src = (JSArray*)get_pointer(vm->gc_roots[ai]);
+        uint32_t len = src->length;
+        for (uint32_t i = 0; i < len; i++) {
+            src = (JSArray*)get_pointer(vm->gc_roots[ai]);
+            Value el = src->elements[i];
+            if (has_map) {
+                Value cb_args[2] = { el, make_integer(i) };
+                el = vm_call_function(vm, vm->gc_roots[mi], 2, cb_args);
+            }
+            array_push(vm->gc_roots[ri], el);
+        }
+    } else if (h->obj_type == OBJ_OBJECT) {
+        Value len_val = object_get(vm->gc_roots[ai], create_string("length", 6));
+        int32_t len = 0;
+        if (IS_INTEGER(len_val)) len = get_integer(len_val);
+        else if (IS_DOUBLE(len_val)) len = (int32_t)get_double(len_val);
+        if (len < 0) len = 0;
+        for (int32_t i = 0; i < len; i++) {
+            char buf[16]; int blen = snprintf(buf, sizeof(buf), "%d", i);
+            Value el = object_get(vm->gc_roots[ai], create_string(buf, blen));
+            if (has_map) {
+                Value cb_args[2] = { el, make_integer(i) };
+                el = vm_call_function(vm, vm->gc_roots[mi], 2, cb_args);
+            }
+            array_push(vm->gc_roots[ri], el);
+        }
+    } else if (h->obj_type == OBJ_STRING) {
+        JSString* src = (JSString*)get_pointer(vm->gc_roots[ai]);
+        for (int32_t i = 0; i < src->length; i++) {
+            Value el = create_string(src->data + i, 1);
+            if (has_map) {
+                Value cb_args[2] = { el, make_integer(i) };
+                el = vm_call_function(vm, vm->gc_roots[mi], 2, cb_args);
+            }
+            array_push(vm->gc_roots[ri], el);
+        }
+    } else if (h->obj_type == OBJ_SET) {
+        JSSet* src = (JSSet*)get_pointer(vm->gc_roots[ai]);
+        uint32_t idx = 0;
+        for (uint32_t i = 0; i < src->capacity; i++) {
+            if (src->elements[i] != VAL_UNDEFINED) {
+                Value el = src->elements[i];
+                if (has_map) {
+                    Value cb_args[2] = { el, make_integer(idx) };
+                    el = vm_call_function(vm, vm->gc_roots[mi], 2, cb_args);
+                }
+                array_push(vm->gc_roots[ri], el);
+                idx++;
+            }
+        }
+    }
+    Value r = vm->gc_roots[ri]; vm_pop_root(vm); vm_pop_root(vm); vm_pop_root(vm); return r;
 }
 
 Value js_array_includes(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; if (!IS_POINTER(this_val) || arg_count < 1) return VAL_FALSE;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return VAL_FALSE;
+    JSArray* arr = (JSArray*)get_pointer(this_val);
+    for (uint32_t i = 0; i < arr->length; i++) {
+        if (values_strict_equal(arr->elements[i], args[0])) return VAL_TRUE;
+    }
+    return VAL_FALSE;
 }
 
 Value js_array_index_of(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; if (!IS_POINTER(this_val) || arg_count < 1) return make_integer(-1);
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return make_integer(-1);
+    JSArray* arr = (JSArray*)get_pointer(this_val);
+    int32_t start = (arg_count >= 2 && IS_INTEGER(args[1])) ? get_integer(args[1]) : 0;
+    if (start < 0) { start = arr->length + start; if (start < 0) start = 0; }
+    for (uint32_t i = start; i < arr->length; i++) {
+        if (values_strict_equal(arr->elements[i], args[0])) return make_integer(i);
+    }
+    return make_integer(-1);
 }
 
 Value js_array_is_array(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1 || !IS_POINTER(args[0])) return VAL_FALSE;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(args[0]) - sizeof(BlockHeader));
+    return h->obj_type == OBJ_ARRAY ? VAL_TRUE : VAL_FALSE;
 }
 
 Value js_array_join(VM* vm, Value this_val, int arg_count, Value* args) {
@@ -175,13 +378,22 @@ Value js_array_join(VM* vm, Value this_val, int arg_count, Value* args) {
 }
 
 Value js_array_of(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    Value arr_val = create_array(arg_count > 0 ? arg_count : 1);
+    for (int i = 0; i < arg_count; i++) {
+        array_push(arr_val, args[i]);
+    }
+    return arr_val;
 }
 
 Value js_array_pop(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)arg_count; (void)args;
+    if (!IS_POINTER(this_val)) return VAL_UNDEFINED;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return VAL_UNDEFINED;
+    JSArray* arr = (JSArray*)get_pointer(this_val);
+    if (arr->length == 0) return VAL_UNDEFINED;
+    return arr->elements[--arr->length];
 }
 
 Value js_array_push_method(VM* vm, Value this_val, int arg_count, Value* args) {
@@ -195,13 +407,34 @@ Value js_array_push_method(VM* vm, Value this_val, int arg_count, Value* args) {
 }
 
 Value js_array_reduce(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    if (!IS_POINTER(this_val) || arg_count < 1 || !IS_POINTER(args[0])) return VAL_UNDEFINED;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return VAL_UNDEFINED;
+    uint32_t ti = vm->gc_root_count; vm_push_root(vm, this_val);
+    uint32_t ci = vm->gc_root_count; vm_push_root(vm, args[0]);
+    JSArray* arr = (JSArray*)get_pointer(vm->gc_roots[ti]);
+    uint32_t len = arr->length;
+    uint32_t start_i = 0;
+    uint32_t ai = vm->gc_root_count;
+    if (arg_count >= 2) { vm_push_root(vm, args[1]); } else { if (len == 0) { vm_pop_root(vm); vm_pop_root(vm); return VAL_UNDEFINED; } vm_push_root(vm, arr->elements[0]); start_i = 1; }
+    for (uint32_t i = start_i; i < len; i++) {
+        arr = (JSArray*)get_pointer(vm->gc_roots[ti]);
+        Value cb_args[4] = { vm->gc_roots[ai], arr->elements[i], make_integer(i), vm->gc_roots[ti] };
+        vm->gc_roots[ai] = vm_call_function(vm, vm->gc_roots[ci], 4, cb_args);
+    }
+    Value r = vm->gc_roots[ai]; vm_pop_root(vm); vm_pop_root(vm); vm_pop_root(vm); return r;
 }
 
 Value js_array_reverse(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)arg_count; (void)args;
+    if (!IS_POINTER(this_val)) return this_val;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return this_val;
+    JSArray* arr = (JSArray*)get_pointer(this_val);
+    for (uint32_t i = 0; i < arr->length / 2; i++) {
+        Value t = arr->elements[i]; arr->elements[i] = arr->elements[arr->length-1-i]; arr->elements[arr->length-1-i] = t;
+    }
+    return this_val;
 }
 
 Value js_array_slice(VM* vm, Value this_val, int arg_count, Value* args) {
@@ -278,19 +511,96 @@ Value js_array_some(VM* vm, Value this_val, int arg_count, Value* args) {
     return VAL_FALSE;
 }
 
+static void js_array_sort_quick(VM* vm, Value* arr, int low, int high, Value cmp_fn) {
+    if (low < high) {
+        Value pivot = arr[high];
+        int i = low - 1;
+        for (int j = low; j < high; j++) {
+            bool swap = false;
+            if (IS_POINTER(cmp_fn)) {
+                Value cb_args[2] = { arr[j], pivot };
+                Value res = vm_call_function(vm, cmp_fn, 2, cb_args);
+                if ((IS_INTEGER(res) && get_integer(res) < 0) || (IS_DOUBLE(res) && get_double(res) < 0)) swap = true;
+            } else {
+                Value sv1 = value_to_string(arr[j]); JSString* s1 = (JSString*)get_pointer(sv1);
+                Value sv2 = value_to_string(pivot); JSString* s2 = (JSString*)get_pointer(sv2);
+                if (strcmp(s1->data, s2->data) < 0) swap = true;
+            }
+            if (swap) {
+                i++;
+                Value t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+            }
+        }
+        Value t = arr[i+1]; arr[i+1] = arr[high]; arr[high] = t;
+        int pi = i + 1;
+        js_array_sort_quick(vm, arr, low, pi - 1, cmp_fn);
+        js_array_sort_quick(vm, arr, pi + 1, high, cmp_fn);
+    }
+}
+
 Value js_array_sort(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    if (!IS_POINTER(this_val)) return VAL_UNDEFINED;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return VAL_UNDEFINED;
+    JSArray* arr = (JSArray*)get_pointer(this_val);
+    if (arr->length <= 1) return this_val;
+    Value cmp_fn = (arg_count > 0 && IS_POINTER(args[0])) ? args[0] : VAL_UNDEFINED;
+    
+    js_array_sort_quick(vm, arr->elements, 0, arr->length - 1, cmp_fn);
+    return this_val;
 }
 
 Value js_array_splice(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    if (!IS_POINTER(this_val)) return VAL_UNDEFINED;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return VAL_UNDEFINED;
+    JSArray* arr = (JSArray*)get_pointer(this_val);
+    
+    Value del_arr_val = create_array(0);
+    if (arg_count == 0) return del_arr_val;
+    
+    int32_t start = IS_INTEGER(args[0]) ? get_integer(args[0]) : (IS_DOUBLE(args[0]) ? (int32_t)get_double(args[0]) : 0);
+    if (start < 0) start = arr->length + start;
+    if (start < 0) start = 0;
+    if (start > (int32_t)arr->length) start = arr->length;
+    
+    int32_t del_count = arr->length - start;
+    if (arg_count >= 2) {
+        del_count = IS_INTEGER(args[1]) ? get_integer(args[1]) : (IS_DOUBLE(args[1]) ? (int32_t)get_double(args[1]) : 0);
+        if (del_count < 0) del_count = 0;
+        if (start + del_count > (int32_t)arr->length) del_count = arr->length - start;
+    }
+    
+    for (int32_t i = 0; i < del_count; i++) array_push(del_arr_val, arr->elements[start + i]);
+    
+    int32_t add_count = arg_count > 2 ? arg_count - 2 : 0;
+    int32_t diff = add_count - del_count;
+    
+    while (arr->length + diff > arr->capacity) {
+        arr->capacity = arr->capacity < 8 ? 8 : arr->capacity * 2;
+        arr->elements = realloc(arr->elements, arr->capacity * sizeof(Value));
+    }
+    
+    if (diff > 0) {
+        for (int32_t i = arr->length - 1; i >= start + del_count; i--) {
+            arr->elements[i + diff] = arr->elements[i];
+        }
+    } else if (diff < 0) {
+        for (int32_t i = start + del_count; i < (int32_t)arr->length; i++) {
+            arr->elements[i + diff] = arr->elements[i];
+        }
+    }
+    
+    for (int32_t i = 0; i < add_count; i++) {
+        arr->elements[start + i] = args[2 + i];
+    }
+    
+    arr->length += diff;
+    return del_arr_val;
 }
 
 Value js_array_to_string(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    return js_array_join(vm, this_val, 0, args);
 }
 
 Value js_error_constructor(VM* vm, Value this_val, int arg_count, Value* args) {
@@ -443,139 +753,195 @@ Value js_json_stringify(VM* vm, Value this_val, int arg_count, Value* args) {
     return res;
 }
 
+static inline double get_number(Value v) {
+    if (IS_INTEGER(v)) return (double)get_integer(v);
+    if (IS_DOUBLE(v)) return get_double(v);
+    if (IS_BOOLEAN(v)) return get_boolean(v) ? 1.0 : 0.0;
+    return NAN;
+}
+
 Value js_math_abs(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(fabs(get_number(args[0])));
 }
 
 Value js_math_acos(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(acos(get_number(args[0])));
 }
 
 Value js_math_asin(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(asin(get_number(args[0])));
 }
 
 Value js_math_atan(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(atan(get_number(args[0])));
 }
 
 Value js_math_atan2(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 2) return make_double(NAN);
+    return make_double(atan2(get_number(args[0]), get_number(args[1])));
 }
 
 Value js_math_cbrt(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(cbrt(get_number(args[0])));
 }
 
 Value js_math_ceil(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(ceil(get_number(args[0])));
 }
 
 Value js_math_clz32(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_integer(32);
+    uint32_t val = (uint32_t)get_number(args[0]);
+    if (val == 0) return make_integer(32);
+    return make_integer(__builtin_clz(val));
 }
 
 Value js_math_cos(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(cos(get_number(args[0])));
 }
 
 Value js_math_exp(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(exp(get_number(args[0])));
 }
 
 Value js_math_f16round(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(half_to_float(float_to_half((float)get_number(args[0]))));
 }
 
 Value js_math_floor(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(floor(get_number(args[0])));
 }
 
 Value js_math_hypot(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count == 0) return make_integer(0);
+    double sum = 0.0;
+    for (int i = 0; i < arg_count; i++) {
+        double val = get_number(args[i]);
+        sum += val * val;
+    }
+    return make_double(sqrt(sum));
 }
 
 Value js_math_imul(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 2) return make_integer(0);
+    uint32_t a = (uint32_t)get_number(args[0]);
+    uint32_t b = (uint32_t)get_number(args[1]);
+    return make_integer((int32_t)(a * b));
 }
 
 Value js_math_log(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(log(get_number(args[0])));
 }
 
 Value js_math_log10(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(log10(get_number(args[0])));
 }
 
 Value js_math_log2(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(log2(get_number(args[0])));
 }
 
 Value js_math_max(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count == 0) return make_double(-INFINITY);
+    double max_val = -INFINITY;
+    for (int i = 0; i < arg_count; i++) {
+        double val = get_number(args[i]);
+        if (isnan(val)) return make_double(NAN);
+        if (val > max_val) max_val = val;
+    }
+    return make_double(max_val);
 }
 
 Value js_math_min(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count == 0) return make_double(INFINITY);
+    double min_val = INFINITY;
+    for (int i = 0; i < arg_count; i++) {
+        double val = get_number(args[i]);
+        if (isnan(val)) return make_double(NAN);
+        if (val < min_val) min_val = val;
+    }
+    return make_double(min_val);
 }
 
 Value js_math_pow(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 2) return make_double(NAN);
+    return make_double(pow(get_number(args[0]), get_number(args[1])));
 }
 
 Value js_math_random(VM* vm, Value this_val, int arg_count, Value* args) {
     (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    return make_double((double)rand() / (double)RAND_MAX);
 }
 
 Value js_math_round(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(round(get_number(args[0])));
 }
 
 Value js_math_sign(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    double val = get_number(args[0]);
+    if (isnan(val) || val == 0.0) return make_double(val);
+    return make_integer(val > 0.0 ? 1 : -1);
 }
 
 Value js_math_sin(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(sin(get_number(args[0])));
 }
 
 Value js_math_sqrt(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(sqrt(get_number(args[0])));
 }
 
 Value js_math_tan(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(tan(get_number(args[0])));
 }
 
 Value js_math_trunc(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return make_double(NAN);
+    return make_double(trunc(get_number(args[0])));
 }
 
 Value js_number_constructor(VM* vm, Value this_val, int arg_count, Value* args) {
@@ -604,8 +970,19 @@ Value js_number_is_safe_integer(VM* vm, Value this_val, int arg_count, Value* ar
 }
 
 Value js_object_assign(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)this_val;
+    if (arg_count < 1 || !IS_POINTER(args[0])) return VAL_UNDEFINED;
+    uint32_t ti = vm->gc_root_count; vm_push_root(vm, args[0]);
+    for (int i = 1; i < arg_count; i++) {
+        if (!IS_POINTER(args[i])) continue;
+        BlockHeader* ah = (BlockHeader*)((char*)get_pointer(args[i]) - sizeof(BlockHeader));
+        if (ah->obj_type == OBJ_OBJECT) {
+            JSObject* src = (JSObject*)get_pointer(args[i]);
+            for (uint32_t p = 0; p < src->count; p++)
+                object_set(vm->gc_roots[ti], src->properties[p].key, src->properties[p].value);
+        }
+    }
+    Value r = vm->gc_roots[ti]; vm_pop_root(vm); return r;
 }
 
 Value js_object_constructor(VM* vm, Value this_val, int arg_count, Value* args) {
@@ -615,22 +992,51 @@ Value js_object_constructor(VM* vm, Value this_val, int arg_count, Value* args) 
 
 Value js_object_create(VM* vm, Value this_val, int arg_count, Value* args) {
     (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    return create_object();
 }
 
 Value js_object_entries(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)this_val;
+    if (arg_count < 1 || !IS_POINTER(args[0])) return create_array(0);
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(args[0]) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_OBJECT) return create_array(0);
+    JSObject* obj = (JSObject*)get_pointer(args[0]);
+    uint32_t ri = vm->gc_root_count; vm_push_root(vm, create_array(obj->count));
+    for (uint32_t i = 0; i < obj->count; i++) {
+        obj = (JSObject*)get_pointer(args[0]);
+        Value pair = create_array(2);
+        array_push(pair, obj->properties[i].key);
+        array_push(pair, obj->properties[i].value);
+        array_push(vm->gc_roots[ri], pair);
+    }
+    Value r = vm->gc_roots[ri]; vm_pop_root(vm); return r;
 }
 
 Value js_object_freeze(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    return arg_count > 0 ? args[0] : VAL_UNDEFINED;
 }
 
 Value js_object_from_entries(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)this_val;
+    if (arg_count < 1 || !IS_POINTER(args[0])) return create_object();
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(args[0]) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return create_object();
+    uint32_t ai = vm->gc_root_count; vm_push_root(vm, args[0]);
+    uint32_t ri = vm->gc_root_count; vm_push_root(vm, create_object());
+    JSArray* arr = (JSArray*)get_pointer(vm->gc_roots[ai]);
+    for (uint32_t i = 0; i < arr->length; i++) {
+        arr = (JSArray*)get_pointer(vm->gc_roots[ai]);
+        Value el = arr->elements[i];
+        if (IS_POINTER(el)) {
+            BlockHeader* eh = (BlockHeader*)((char*)get_pointer(el) - sizeof(BlockHeader));
+            if (eh->obj_type == OBJ_ARRAY) {
+                JSArray* pair = (JSArray*)get_pointer(el);
+                if (pair->length >= 2) object_set(vm->gc_roots[ri], value_to_string(pair->elements[0]), pair->elements[1]);
+            }
+        }
+    }
+    Value r = vm->gc_roots[ri]; vm_pop_root(vm); vm_pop_root(vm); return r;
 }
 
 Value js_object_keys(VM* vm, Value this_val, int arg_count, Value* args) {
@@ -651,8 +1057,17 @@ Value js_object_keys(VM* vm, Value this_val, int arg_count, Value* args) {
 }
 
 Value js_object_values(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)this_val;
+    if (arg_count < 1 || !IS_POINTER(args[0])) return create_array(0);
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(args[0]) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_OBJECT) return create_array(0);
+    JSObject* obj = (JSObject*)get_pointer(args[0]);
+    uint32_t ri = vm->gc_root_count; vm_push_root(vm, create_array(obj->count));
+    for (uint32_t i = 0; i < obj->count; i++) {
+        obj = (JSObject*)get_pointer(args[0]);
+        array_push(vm->gc_roots[ri], obj->properties[i].value);
+    }
+    Value r = vm->gc_roots[ri]; vm_pop_root(vm); return r;
 }
 
 Value js_parse_float(VM* vm, Value this_val, int arg_count, Value* args) {
@@ -735,18 +1150,59 @@ Value js_reference_error_constructor(VM* vm, Value this_val, int arg_count, Valu
 }
 
 Value js_regexp_constructor(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count < 1) return VAL_UNDEFINED;
+    Value src = value_to_string(args[0]);
+    Value flags = (arg_count > 1) ? value_to_string(args[1]) : create_string("", 0);
+    JSRegExp* re = (JSRegExp*)arena_alloc(OBJ_REGEXP, sizeof(JSRegExp));
+    re->source = src; re->flags = flags;
+    re->global = 0; re->ignore_case = 0; re->multiline = 0; re->dot_all = 0;
+    JSString* fs = (JSString*)get_pointer(flags);
+    int cflags = REG_EXTENDED;
+    for (uint32_t i = 0; i < fs->length; i++) {
+        if (fs->data[i] == 'g') re->global = 1;
+        if (fs->data[i] == 'i') { re->ignore_case = 1; cflags |= REG_ICASE; }
+        if (fs->data[i] == 'm') { re->multiline = 1; cflags |= REG_NEWLINE; }
+        if (fs->data[i] == 's') re->dot_all = 1;
+    }
+    regex_t* compiled = malloc(sizeof(regex_t));
+    JSString* ss = (JSString*)get_pointer(src);
+    if (regcomp(compiled, ss->data, cflags) != 0) { free(compiled); re->compiled = NULL; }
+    else { re->compiled = compiled; }
+    return make_pointer(re);
 }
 
 Value js_regexp_exec(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    if (!IS_POINTER(this_val) || arg_count < 1) return VAL_NULL;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_REGEXP) return VAL_NULL;
+    JSRegExp* re = (JSRegExp*)get_pointer(this_val);
+    if (!re->compiled) return VAL_NULL;
+    uint32_t ti = vm->gc_root_count; vm_push_root(vm, value_to_string(args[0]));
+    JSString* ts = (JSString*)get_pointer(vm->gc_roots[ti]);
+    regmatch_t pm[10];
+    if (regexec((regex_t*)re->compiled, ts->data, 10, pm, 0) == 0) {
+        uint32_t ri = vm->gc_root_count; vm_push_root(vm, create_array(0));
+        for (int i = 0; i < 10 && pm[i].rm_so != -1; i++) {
+            ts = (JSString*)get_pointer(vm->gc_roots[ti]);
+            array_push(vm->gc_roots[ri], create_string(ts->data + pm[i].rm_so, pm[i].rm_eo - pm[i].rm_so));
+        }
+        Value r = vm->gc_roots[ri]; vm_pop_root(vm); vm_pop_root(vm); return r;
+    }
+    vm_pop_root(vm); return VAL_NULL;
 }
 
 Value js_regexp_test(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm;
+    if (!IS_POINTER(this_val) || arg_count < 1) return VAL_FALSE;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_REGEXP) return VAL_FALSE;
+    JSRegExp* re = (JSRegExp*)get_pointer(this_val);
+    if (!re->compiled) return VAL_FALSE;
+    Value target = value_to_string(args[0]);
+    JSString* ts = (JSString*)get_pointer(target);
+    regmatch_t pm[1];
+    return regexec((regex_t*)re->compiled, ts->data, 1, pm, 0) == 0 ? VAL_TRUE : VAL_FALSE;
 }
 
 Value js_s(VM* vm, Value this_val, int arg_count, Value* args) {
@@ -755,63 +1211,155 @@ Value js_s(VM* vm, Value this_val, int arg_count, Value* args) {
 }
 
 Value js_set_for_each(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    if (!IS_POINTER(this_val) || arg_count < 1 || !IS_POINTER(args[0])) return VAL_UNDEFINED;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_SET) return VAL_UNDEFINED;
+    uint32_t ti = vm->gc_root_count; vm_push_root(vm, this_val);
+    uint32_t ci = vm->gc_root_count; vm_push_root(vm, args[0]);
+    JSSet* set = (JSSet*)get_pointer(vm->gc_roots[ti]);
+    for (uint32_t i = 0; i < set->capacity; i++) {
+        set = (JSSet*)get_pointer(vm->gc_roots[ti]);
+        if (set->elements[i] == VAL_UNDEFINED) continue;
+        Value cb_args[3] = { set->elements[i], set->elements[i], vm->gc_roots[ti] };
+        vm_call_function(vm, vm->gc_roots[ci], 3, cb_args);
+    }
+    vm_pop_root(vm); vm_pop_root(vm); return VAL_UNDEFINED;
 }
 
 Value js_set_is_disjoint_from(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm;
+    if (!IS_POINTER(this_val) || arg_count < 1 || !IS_POINTER(args[0])) return VAL_FALSE;
+    BlockHeader* h1 = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    BlockHeader* h2 = (BlockHeader*)((char*)get_pointer(args[0]) - sizeof(BlockHeader));
+    if (h1->obj_type != OBJ_SET || h2->obj_type != OBJ_SET) return VAL_FALSE;
+    JSSet* s1 = (JSSet*)get_pointer(this_val);
+    for (uint32_t i = 0; i < s1->capacity; i++) {
+        if (s1->elements[i] != VAL_UNDEFINED && set_has(args[0], s1->elements[i])) return VAL_FALSE;
+    }
+    return VAL_TRUE;
 }
 
 Value js_set_is_subset_of(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm;
+    if (!IS_POINTER(this_val) || arg_count < 1 || !IS_POINTER(args[0])) return VAL_FALSE;
+    BlockHeader* h1 = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    BlockHeader* h2 = (BlockHeader*)((char*)get_pointer(args[0]) - sizeof(BlockHeader));
+    if (h1->obj_type != OBJ_SET || h2->obj_type != OBJ_SET) return VAL_FALSE;
+    JSSet* s1 = (JSSet*)get_pointer(this_val);
+    for (uint32_t i = 0; i < s1->capacity; i++) {
+        if (s1->elements[i] != VAL_UNDEFINED && !set_has(args[0], s1->elements[i])) return VAL_FALSE;
+    }
+    return VAL_TRUE;
 }
 
 Value js_set_is_superset_of(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm;
+    if (!IS_POINTER(this_val) || arg_count < 1 || !IS_POINTER(args[0])) return VAL_FALSE;
+    BlockHeader* h1 = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    BlockHeader* h2 = (BlockHeader*)((char*)get_pointer(args[0]) - sizeof(BlockHeader));
+    if (h1->obj_type != OBJ_SET || h2->obj_type != OBJ_SET) return VAL_FALSE;
+    JSSet* s2 = (JSSet*)get_pointer(args[0]);
+    for (uint32_t i = 0; i < s2->capacity; i++) {
+        if (s2->elements[i] != VAL_UNDEFINED && !set_has(this_val, s2->elements[i])) return VAL_FALSE;
+    }
+    return VAL_TRUE;
 }
 
 Value js_set_symmetric_difference(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    if (!IS_POINTER(this_val) || arg_count < 1 || !IS_POINTER(args[0])) return VAL_UNDEFINED;
+    uint32_t ri = vm->gc_root_count; vm_push_root(vm, create_set());
+    uint32_t ti = vm->gc_root_count; vm_push_root(vm, this_val);
+    uint32_t ai = vm->gc_root_count; vm_push_root(vm, args[0]);
+    JSSet* s1 = (JSSet*)get_pointer(vm->gc_roots[ti]);
+    for (uint32_t i = 0; i < s1->capacity; i++)
+        if (s1->elements[i] != VAL_UNDEFINED && !set_has(vm->gc_roots[ai], s1->elements[i]))
+            set_add(vm->gc_roots[ri], s1->elements[i]);
+    JSSet* s2 = (JSSet*)get_pointer(vm->gc_roots[ai]);
+    for (uint32_t i = 0; i < s2->capacity; i++)
+        if (s2->elements[i] != VAL_UNDEFINED && !set_has(vm->gc_roots[ti], s2->elements[i]))
+            set_add(vm->gc_roots[ri], s2->elements[i]);
+    Value r = vm->gc_roots[ri]; vm_pop_root(vm); vm_pop_root(vm); vm_pop_root(vm); return r;
 }
 
 Value js_set_values(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)arg_count; (void)args;
+    if (!IS_POINTER(this_val)) return VAL_UNDEFINED;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_SET) return VAL_UNDEFINED;
+    JSSet* set = (JSSet*)get_pointer(this_val);
+    uint32_t ti = vm->gc_root_count; vm_push_root(vm, this_val);
+    uint32_t ri = vm->gc_root_count; vm_push_root(vm, create_array(set->count));
+    for (uint32_t i = 0; i < set->capacity; i++) {
+        set = (JSSet*)get_pointer(vm->gc_roots[ti]);
+        if (set->elements[i] != VAL_UNDEFINED) array_push(vm->gc_roots[ri], set->elements[i]);
+    }
+    Value r = vm->gc_roots[ri]; vm_pop_root(vm); vm_pop_root(vm); return r;
 }
 
 Value js_string_at(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; if (!IS_POINTER(this_val) || arg_count < 1) return VAL_UNDEFINED;
+    JSString* str = (JSString*)get_pointer(this_val);
+    int32_t idx = IS_INTEGER(args[0]) ? get_integer(args[0]) : IS_DOUBLE(args[0]) ? (int32_t)get_double(args[0]) : 0;
+    if (idx < 0) idx = str->length + idx;
+    if (idx < 0 || idx >= (int32_t)str->length) return VAL_UNDEFINED;
+    return create_string(str->data + idx, 1);
 }
 
 Value js_string_char_at(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; if (!IS_POINTER(this_val)) return create_string("", 0);
+    JSString* str = (JSString*)get_pointer(this_val);
+    int32_t idx = (arg_count >= 1 && IS_INTEGER(args[0])) ? get_integer(args[0]) : 0;
+    if (idx < 0 || idx >= (int32_t)str->length) return create_string("", 0);
+    return create_string(str->data + idx, 1);
 }
 
 Value js_string_char_code_at(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; if (!IS_POINTER(this_val)) return make_integer(-1);
+    JSString* str = (JSString*)get_pointer(this_val);
+    int32_t idx = (arg_count >= 1 && IS_INTEGER(args[0])) ? get_integer(args[0]) : 0;
+    if (idx < 0 || idx >= (int32_t)str->length) return make_integer(-1);
+    return make_integer((unsigned char)str->data[idx]);
 }
 
 Value js_string_concat_method(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; if (!IS_POINTER(this_val)) return VAL_UNDEFINED;
+    JSString* str = (JSString*)get_pointer(this_val);
+    uint32_t total = str->length;
+    for (int i = 0; i < arg_count; i++) { Value s = value_to_string(args[i]); total += ((JSString*)get_pointer(s))->length; }
+    char* buf = malloc(total + 1); strcpy(buf, str->data);
+    for (int i = 0; i < arg_count; i++) { Value s = value_to_string(args[i]); strcat(buf, ((JSString*)get_pointer(s))->data); }
+    Value r = create_string(buf, total); free(buf); return r;
 }
 
 Value js_string_constructor(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)this_val;
+    if (arg_count == 0) return create_string("", 0);
+    return value_to_string(args[0]);
 }
 
 Value js_string_ends_with(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm;
+    if (!IS_POINTER(this_val) || arg_count < 1) return VAL_FALSE;
+    BlockHeader* h_this = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h_this->obj_type != OBJ_STRING) return VAL_FALSE;
+    
+    JSString* str = (JSString*)get_pointer(this_val);
+    Value search_val = value_to_string(args[0]);
+    JSString* search = (JSString*)get_pointer(search_val);
+    
+    int end_pos = str->length;
+    if (arg_count > 1 && IS_INTEGER(args[1])) {
+        end_pos = get_integer(args[1]);
+        if (end_pos > (int)str->length) end_pos = str->length;
+        if (end_pos < 0) end_pos = 0;
+    }
+    
+    if (search->length == 0) return VAL_TRUE;
+    if (search->length > (uint32_t)end_pos) return VAL_FALSE;
+    
+    int start_pos = end_pos - search->length;
+    if (memcmp(str->data + start_pos, search->data, search->length) == 0) return VAL_TRUE;
+    return VAL_FALSE;
 }
 
 Value js_string_from_char_code(VM* vm __attribute__((unused)), Value this_val, int arg_count, Value* args) {
@@ -834,8 +1382,13 @@ Value js_string_from_char_code(VM* vm __attribute__((unused)), Value this_val, i
 }
 
 Value js_string_includes(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; if (!IS_POINTER(this_val) || arg_count < 1 || !IS_POINTER(args[0])) return VAL_FALSE;
+    BlockHeader* h1 = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    BlockHeader* h2 = (BlockHeader*)((char*)get_pointer(args[0]) - sizeof(BlockHeader));
+    if (h1->obj_type != OBJ_STRING || h2->obj_type != OBJ_STRING) return VAL_FALSE;
+    JSString* str = (JSString*)get_pointer(this_val);
+    JSString* search = (JSString*)get_pointer(args[0]);
+    return strstr(str->data, search->data) ? VAL_TRUE : VAL_FALSE;
 }
 
 Value js_string_index_of(VM* vm, Value this_val, int arg_count, Value* args) {
@@ -861,18 +1414,127 @@ Value js_string_index_of(VM* vm, Value this_val, int arg_count, Value* args) {
 }
 
 Value js_string_last_index_of(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm;
+    if (!IS_POINTER(this_val) || arg_count < 1) return make_integer(-1);
+    BlockHeader* h_this = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h_this->obj_type != OBJ_STRING) return make_integer(-1);
+    
+    JSString* str = (JSString*)get_pointer(this_val);
+    Value search_val = value_to_string(args[0]);
+    JSString* search = (JSString*)get_pointer(search_val);
+    
+    int pos = str->length;
+    if (arg_count > 1) {
+        if (IS_INTEGER(args[1])) pos = get_integer(args[1]);
+        else if (IS_DOUBLE(args[1])) pos = (int)get_double(args[1]);
+        if (pos > (int)str->length) pos = str->length;
+        if (pos < 0) pos = 0;
+    } else {
+        pos = str->length;
+    }
+    
+    if (search->length == 0) return make_integer(pos);
+    if (search->length > str->length) return make_integer(-1);
+    
+    int max_start = pos;
+    if (max_start > (int)(str->length - search->length)) {
+        max_start = str->length - search->length;
+    }
+    
+    for (int i = max_start; i >= 0; i--) {
+        if (memcmp(str->data + i, search->data, search->length) == 0) {
+            return make_integer(i);
+        }
+    }
+    return make_integer(-1);
 }
 
 Value js_string_pad_end(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm;
+    if (!IS_POINTER(this_val)) return VAL_UNDEFINED;
+    BlockHeader* h_this = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h_this->obj_type != OBJ_STRING) return VAL_UNDEFINED;
+    JSString* str = (JSString*)get_pointer(this_val);
+    
+    int target_len = 0;
+    if (arg_count > 0) {
+        if (IS_INTEGER(args[0])) target_len = get_integer(args[0]);
+        else if (IS_DOUBLE(args[0])) target_len = (int)get_double(args[0]);
+    }
+    if (target_len <= (int)str->length) return this_val;
+    
+    const char* pad_str = " ";
+    int pad_len = 1;
+    Value pad_val = VAL_UNDEFINED;
+    if (arg_count > 1 && args[1] != VAL_UNDEFINED) {
+        pad_val = value_to_string(args[1]);
+        JSString* ps = (JSString*)get_pointer(pad_val);
+        if (ps->length > 0) {
+            pad_str = ps->data;
+            pad_len = ps->length;
+        } else {
+            return this_val;
+        }
+    }
+    
+    int diff = target_len - str->length;
+    char* buf = malloc(target_len + 1);
+    memcpy(buf, str->data, str->length);
+    
+    int out = str->length;
+    while (out < target_len) {
+        int chunk = (target_len - out > pad_len) ? pad_len : (target_len - out);
+        memcpy(buf + out, pad_str, chunk);
+        out += chunk;
+    }
+    buf[target_len] = '\0';
+    Value res = create_string(buf, target_len);
+    free(buf);
+    return res;
 }
 
 Value js_string_pad_start(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm;
+    if (!IS_POINTER(this_val)) return VAL_UNDEFINED;
+    BlockHeader* h_this = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h_this->obj_type != OBJ_STRING) return VAL_UNDEFINED;
+    JSString* str = (JSString*)get_pointer(this_val);
+    
+    int target_len = 0;
+    if (arg_count > 0) {
+        if (IS_INTEGER(args[0])) target_len = get_integer(args[0]);
+        else if (IS_DOUBLE(args[0])) target_len = (int)get_double(args[0]);
+    }
+    if (target_len <= (int)str->length) return this_val;
+    
+    const char* pad_str = " ";
+    int pad_len = 1;
+    Value pad_val = VAL_UNDEFINED;
+    if (arg_count > 1 && args[1] != VAL_UNDEFINED) {
+        pad_val = value_to_string(args[1]);
+        JSString* ps = (JSString*)get_pointer(pad_val);
+        if (ps->length > 0) {
+            pad_str = ps->data;
+            pad_len = ps->length;
+        } else {
+            return this_val;
+        }
+    }
+    
+    int diff = target_len - str->length;
+    char* buf = malloc(target_len + 1);
+    
+    int out = 0;
+    while (out < diff) {
+        int chunk = (diff - out > pad_len) ? pad_len : (diff - out);
+        memcpy(buf + out, pad_str, chunk);
+        out += chunk;
+    }
+    memcpy(buf + out, str->data, str->length);
+    buf[target_len] = '\0';
+    Value res = create_string(buf, target_len);
+    free(buf);
+    return res;
 }
 
 Value js_string_repeat(VM* vm, Value this_val, int arg_count, Value* args) {
@@ -905,13 +1567,61 @@ Value js_string_repeat(VM* vm, Value this_val, int arg_count, Value* args) {
 }
 
 Value js_string_replace(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; if (!IS_POINTER(this_val) || arg_count < 2) return this_val;
+    JSString* str = (JSString*)get_pointer(this_val);
+    if (IS_POINTER(args[0])) {
+        BlockHeader* ah = (BlockHeader*)((char*)get_pointer(args[0]) - sizeof(BlockHeader));
+        if (ah->obj_type == OBJ_REGEXP) {
+            JSRegExp* re = (JSRegExp*)get_pointer(args[0]);
+            if (re->compiled) {
+                regmatch_t pm[1];
+                if (regexec((regex_t*)re->compiled, str->data, 1, pm, 0) == 0) {
+                    JSString* rep = (JSString*)get_pointer(value_to_string(args[1]));
+                    uint32_t nl = str->length - (pm[0].rm_eo - pm[0].rm_so) + rep->length;
+                    char* buf = malloc(nl + 1);
+                    memcpy(buf, str->data, pm[0].rm_so);
+                    memcpy(buf + pm[0].rm_so, rep->data, rep->length);
+                    memcpy(buf + pm[0].rm_so + rep->length, str->data + pm[0].rm_eo, str->length - pm[0].rm_eo);
+                    buf[nl] = '\0';
+                    Value r = create_string(buf, nl); free(buf); return r;
+                }
+                return this_val;
+            }
+        }
+    }
+    JSString* search = (JSString*)get_pointer(value_to_string(args[0]));
+    JSString* rep = (JSString*)get_pointer(value_to_string(args[1]));
+    char* pos = strstr(str->data, search->data);
+    if (!pos) return this_val;
+    int prefix = pos - str->data;
+    uint32_t nl = str->length - search->length + rep->length;
+    char* buf = malloc(nl + 1);
+    memcpy(buf, str->data, prefix);
+    memcpy(buf + prefix, rep->data, rep->length);
+    memcpy(buf + prefix + rep->length, pos + search->length, str->length - prefix - search->length);
+    buf[nl] = '\0';
+    Value r = create_string(buf, nl); free(buf); return r;
 }
 
 Value js_string_replace_all(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; if (!IS_POINTER(this_val) || arg_count < 2) return this_val;
+    JSString* str = (JSString*)get_pointer(this_val);
+    JSString* search = (JSString*)get_pointer(value_to_string(args[0]));
+    JSString* rep = (JSString*)get_pointer(value_to_string(args[1]));
+    if (search->length == 0) return this_val;
+    char* buf = malloc(str->length * 2 + 1); uint32_t cap = str->length * 2 + 1; uint32_t out = 0;
+    char* cur = str->data; char* next;
+    while ((next = strstr(cur, search->data)) != NULL) {
+        int chunk = next - cur;
+        if (out + chunk + rep->length + 1 > cap) { cap *= 2; buf = realloc(buf, cap); }
+        memcpy(buf + out, cur, chunk); out += chunk;
+        memcpy(buf + out, rep->data, rep->length); out += rep->length;
+        cur = next + search->length;
+    }
+    int rem = strlen(cur);
+    if (out + rem + 1 > cap) buf = realloc(buf, out + rem + 1);
+    strcpy(buf + out, cur); out += rem;
+    Value r = create_string(buf, out); free(buf); return r;
 }
 
 Value js_string_slice(VM* vm, Value this_val, int arg_count, Value* args) {
@@ -1028,8 +1738,27 @@ Value js_string_split(VM* vm, Value this_val, int arg_count, Value* args) {
 }
 
 Value js_string_starts_with(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm;
+    if (!IS_POINTER(this_val) || arg_count < 1) return VAL_FALSE;
+    BlockHeader* h_this = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h_this->obj_type != OBJ_STRING) return VAL_FALSE;
+    
+    JSString* str = (JSString*)get_pointer(this_val);
+    Value search_val = value_to_string(args[0]);
+    JSString* search = (JSString*)get_pointer(search_val);
+    
+    int start_pos = 0;
+    if (arg_count > 1 && IS_INTEGER(args[1])) {
+        start_pos = get_integer(args[1]);
+        if (start_pos < 0) start_pos = 0;
+        if (start_pos > (int)str->length) start_pos = str->length;
+    }
+    
+    if (search->length == 0) return VAL_TRUE;
+    if (start_pos + search->length > str->length) return VAL_FALSE;
+    
+    if (memcmp(str->data + start_pos, search->data, search->length) == 0) return VAL_TRUE;
+    return VAL_FALSE;
 }
 
 Value js_string_substring(VM* vm, Value this_val, int arg_count, Value* args) {
@@ -1070,33 +1799,84 @@ Value js_string_substring(VM* vm, Value this_val, int arg_count, Value* args) {
 }
 
 Value js_string_to_lower(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)arg_count; (void)args;
+    if (!IS_POINTER(this_val)) return VAL_UNDEFINED;
+    BlockHeader* h_this = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h_this->obj_type != OBJ_STRING) return VAL_UNDEFINED;
+    JSString* str = (JSString*)get_pointer(this_val);
+    char* buf = malloc(str->length + 1);
+    for (uint32_t i = 0; i < str->length; i++) buf[i] = tolower((unsigned char)str->data[i]);
+    buf[str->length] = '\0';
+    Value res = create_string(buf, str->length);
+    free(buf);
+    return res;
 }
 
 Value js_string_to_string(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)arg_count; (void)args;
+    if (!IS_POINTER(this_val)) return VAL_UNDEFINED;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type == OBJ_STRING) return this_val;
+    return value_to_string(this_val);
 }
 
 Value js_string_to_upper(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)arg_count; (void)args;
+    if (!IS_POINTER(this_val)) return VAL_UNDEFINED;
+    BlockHeader* h_this = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h_this->obj_type != OBJ_STRING) return VAL_UNDEFINED;
+    JSString* str = (JSString*)get_pointer(this_val);
+    char* buf = malloc(str->length + 1);
+    for (uint32_t i = 0; i < str->length; i++) buf[i] = toupper((unsigned char)str->data[i]);
+    buf[str->length] = '\0';
+    Value res = create_string(buf, str->length);
+    free(buf);
+    return res;
 }
 
 Value js_string_trim(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)arg_count; (void)args;
+    if (!IS_POINTER(this_val)) return VAL_UNDEFINED;
+    BlockHeader* h_this = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h_this->obj_type != OBJ_STRING) return VAL_UNDEFINED;
+    JSString* str = (JSString*)get_pointer(this_val);
+    
+    int start = 0;
+    while (start < (int)str->length && isspace((unsigned char)str->data[start])) start++;
+    
+    int end = str->length - 1;
+    while (end >= start && isspace((unsigned char)str->data[end])) end--;
+    
+    if (start > end) return create_string("", 0);
+    return create_string(str->data + start, end - start + 1);
 }
 
 Value js_string_trim_end(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)arg_count; (void)args;
+    if (!IS_POINTER(this_val)) return VAL_UNDEFINED;
+    BlockHeader* h_this = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h_this->obj_type != OBJ_STRING) return VAL_UNDEFINED;
+    JSString* str = (JSString*)get_pointer(this_val);
+    
+    int end = str->length - 1;
+    while (end >= 0 && isspace((unsigned char)str->data[end])) end--;
+    
+    if (end < 0) return create_string("", 0);
+    return create_string(str->data, end + 1);
 }
 
 Value js_string_trim_start(VM* vm, Value this_val, int arg_count, Value* args) {
-    (void)vm; (void)this_val; (void)arg_count; (void)args;
-    return VAL_UNDEFINED;
+    (void)vm; (void)arg_count; (void)args;
+    if (!IS_POINTER(this_val)) return VAL_UNDEFINED;
+    BlockHeader* h_this = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h_this->obj_type != OBJ_STRING) return VAL_UNDEFINED;
+    JSString* str = (JSString*)get_pointer(this_val);
+    
+    int start = 0;
+    while (start < (int)str->length && isspace((unsigned char)str->data[start])) start++;
+    
+    if (start >= (int)str->length) return create_string("", 0);
+    return create_string(str->data + start, str->length - start);
 }
 
 Value js_suppressed_error_constructor(VM* vm, Value this_val, int arg_count, Value* args) {
@@ -2082,3 +2862,43 @@ Value js_function_apply(VM* vm, Value this_val, int arg_count, Value* args) {
     return res;
 }
 
+Value js_array_shift(VM* vm, Value this_val, int arg_count, Value* args) {
+    (void)vm; (void)arg_count; (void)args;
+    if (!IS_POINTER(this_val)) return VAL_UNDEFINED;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return VAL_UNDEFINED;
+    JSArray* arr = (JSArray*)get_pointer(this_val);
+    if (arr->length == 0) return VAL_UNDEFINED;
+    Value el = arr->elements[0];
+    for (uint32_t i = 1; i < arr->length; i++) arr->elements[i-1] = arr->elements[i];
+    arr->length--;
+    return el;
+}
+
+Value js_array_unshift(VM* vm, Value this_val, int arg_count, Value* args) {
+    if (!IS_POINTER(this_val) || arg_count == 0) return VAL_UNDEFINED;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return VAL_UNDEFINED;
+    uint32_t ti = vm->gc_root_count; vm_push_root(vm, this_val);
+    for (int i = 0; i < arg_count; i++) array_push(vm->gc_roots[ti], VAL_UNDEFINED);
+    JSArray* arr = (JSArray*)get_pointer(vm->gc_roots[ti]);
+    for (int32_t i = arr->length - 1; i >= arg_count; i--) arr->elements[i] = arr->elements[i - arg_count];
+    for (int i = 0; i < arg_count; i++) arr->elements[i] = args[i];
+    Value r = make_integer(arr->length); vm_pop_root(vm); return r;
+}
+
+Value js_array_last_index_of(VM* vm, Value this_val, int arg_count, Value* args) {
+    (void)vm; if (!IS_POINTER(this_val) || arg_count < 1) return make_integer(-1);
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_ARRAY) return make_integer(-1);
+    JSArray* arr = (JSArray*)get_pointer(this_val);
+    if (arr->length == 0) return make_integer(-1);
+    int32_t start = arr->length - 1;
+    if (arg_count >= 2 && IS_INTEGER(args[1])) start = get_integer(args[1]);
+    if (start < 0) start = arr->length + start;
+    if (start >= (int32_t)arr->length) start = arr->length - 1;
+    for (int32_t i = start; i >= 0; i--) {
+        if (values_strict_equal(arr->elements[i], args[0])) return make_integer(i);
+    }
+    return make_integer(-1);
+}

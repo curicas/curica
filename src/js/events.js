@@ -1,7 +1,7 @@
 var EventEmitter = function() {
     this._events = {};
 };
-console.log('Inside events.js, EventEmitter.prototype:', EventEmitter.prototype);
+
 
 EventEmitter.prototype.on = function(eventName, listener) {
     if (!this._events[eventName]) {

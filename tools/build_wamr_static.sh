@@ -58,7 +58,7 @@ C_FILES=(
 
 INCLUDES="-Isrc/compat -I${WAMR_DIR}/iwasm/include -I${WAMR_DIR}/iwasm/common -I${WAMR_DIR}/iwasm/interpreter -I${WAMR_DIR}/shared/platform/include -I${WAMR_DIR}/shared/platform/linux -I${WAMR_DIR}/shared/platform/common/libc-util -I${WAMR_DIR}/shared/utils -I${WAMR_DIR}/shared/mem-alloc -I${WAMR_DIR}/iwasm/libraries/libc-wasi/sandboxed-system-primitives/include -I${WAMR_DIR}/iwasm/libraries/libc-wasi/sandboxed-system-primitives/src"
 
-CFLAGS="-g -O3 ${WARNING_FLAGS} -std=gnu99 -DWASM_ENABLE_FAST_INTERP=1 -DWASM_ENABLE_INTERP=1 -DWASM_ENABLE_LIBC_WASI=1 -DWASM_ENABLE_LIBC_BUILTIN=1 -DWASMTIME_SSP_STATIC_WATERMARKS=1 -DWASM_ENABLE_AOT=0 -DWASM_ENABLE_FAST_JIT=0 -DWASM_ENABLE_JIT=0 -DBH_MALLOC=wasm_runtime_malloc -DBH_FREE=wasm_runtime_free -DBH_PLATFORM_LINUX -DWASM_ENABLE_MODULE_INST_CONTEXT=1"
+CFLAGS="-g -O3 ${WARNING_FLAGS} -std=gnu99 -DWASM_ENABLE_FAST_INTERP=1 -DWASM_ENABLE_INTERP=1 -DWASM_ENABLE_LIBC_WASI=1 -DWASM_ENABLE_LIBC_BUILTIN=1 -DWASMTIME_SSP_STATIC_WATERMARKS=1 -DWASM_ENABLE_AOT=0 -DWASM_ENABLE_FAST_JIT=0 -DWASM_ENABLE_JIT=0 -DBH_MALLOC=wasm_runtime_malloc -DBH_FREE=wasm_runtime_free -DBH_PLATFORM_LINUX -DWASM_ENABLE_MODULE_INST_CONTEXT=1 -DWASM_ENABLE_SIMD=1"
 
 OBJ_FILES=()
 

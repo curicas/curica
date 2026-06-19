@@ -1,14 +1,17 @@
 /**
  * @file fs_module.c
- * @brief File System Built-in Module (sync + async) for Curica.
+ * @brief strict POSIX Virtual File System (VFS) Integration for Curica.
  *
- * Implements the Node.js-compatible 'fs' API using POSIX primitives.
- * Sync operations run on the calling thread. Async operations submit
- * WorkItems to the thread pool (src/thread_pool.h) and invoke callbacks
- * on the main VM thread via tp_drain_completions().
+ * Implements file system capabilities for the Curica Environment OS Kernel. 
+ * Sync operations run on the calling thread, while async operations submit 
+ * WorkItems to the thread pool to avoid blocking the microkernel OS.
  *
- * All errors are translated into SystemError objects via create_system_error()
- * so that try/catch and rejection handlers work as expected.
+ * This subsystem supports JS natively as the systems shell scripting language 
+ * to manipulate files in /bin, /home/user, and pseudo-filesystems (/dev, /proc) 
+ * while piping I/O to spawned WASM processes. All access is governed by the 
+ * strict Capability-Based Security matrix (zero-bloat validation without UIDs/GIDs), 
+ * crucial for securely running frozen environments from Actually Portable 
+ * Executables (APEs).
  */
 #include "fs_module.h"
 #include "alloc.h"

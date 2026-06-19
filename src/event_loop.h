@@ -61,6 +61,7 @@ typedef struct IOHandle {
     IOCallback cb;           /**< Called when fd becomes ready.    */
     void*      user_data;    /**< Opaque payload for the callback. */
     bool       active;       /**< If false, skip on next poll tick. */
+    bool       unrefed;      /**< If true, does not keep the event loop alive. */
     struct IOHandle* next;
 } IOHandle;
 
@@ -108,6 +109,12 @@ void el_add_io(EventLoop* loop, IOHandle* handle);
 
 /** Deregister an IOHandle. The fd is NOT closed by this call. */
 void el_remove_io(EventLoop* loop, IOHandle* handle);
+
+/** Mark an IOHandle as not keeping the event loop alive. */
+void el_unref_io(EventLoop* loop, IOHandle* handle);
+
+/** Mark an IOHandle as keeping the event loop alive (default). */
+void el_ref_io(EventLoop* loop, IOHandle* handle);
 
 #include "alloc.h"
 void el_trace_roots(GCTraceFn trace);

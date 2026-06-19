@@ -1,9 +1,10 @@
 /**
  * @file main.c
- * @brief Curica Runtime Entry Point.
+ * @brief Curica Environment OS Kernel Entry Point.
  *
- * Handles CLI argument parsing, VM initialization, primary script loading,
- * and event loop ignition.
+ * Acts as the microkernel orchestrator. Handles CLI argument parsing, 
+ * VFS initialization (POSIX FHS compliance), APE immutable bootstrapping, 
+ * execution of the primary JS shell script, and event loop ignition.
  */
 #define _GNU_SOURCE
 #include "alloc.h"
@@ -116,19 +117,20 @@ static void get_exec_path(char *out_path, size_t size, const char *argv0) {
 }
 
 /**
- * @brief Main Entry Point for the Curica Runtime (Actually Portable Executable)
+ * @brief Main Entry Point for the Curica Environment OS Kernel (APE)
  *
  * This function handles the initialization of the VM and execution of scripts.
  * Curica is compiled via Cosmopolitan libc as an Actually Portable Executable
  * (APE), meaning this exact binary runs natively on Linux, macOS, and Windows.
  *
  * Key Architectural Boot Sequences:
- * 1. **Signal Handlers**: Hooks `SIGSEGV` to catch stack overflows natively.
- * 2. **Snapshot Booting**: Checks for `curica.snap`. If found, it bypasses AOT
- * compilation and uses `MAP_FIXED` to restore the precise virtual memory state
- * of a previous execution for zero-latency startup.
- * 3. **Execution Modes**: Routes to the Curica Environment REPL, AOT
- * Compilation runner, or direct binary execution.
+ * 1. **VFS Bootstrapping**: Initializes the Virtual File System, enforcing POSIX FHS 
+ *    compliance, pseudo-filesystems (/dev, /proc), and mounting `--attach` overlays.
+ * 2. **Signal Handlers**: Hooks `SIGSEGV` to catch stack overflows natively.
+ * 3. **Immutable APE Unpacking**: Checks if the binary contains a frozen VFS payload 
+ *    created via `curica build`. If found, it deserializes the environment instantly.
+ * 4. **Execution Modes**: Routes to the Curica OS Shell REPL, AOT Compiler, 
+ *    or direct kernel execution.
  *
  * @param argc Argument count
  * @param argv Argument vector
@@ -495,27 +497,39 @@ int main(int argc, char **argv) {
       fprintf(stderr, "Usage: curica build <in.js> <out>\n");
       return 1;
     }
-    char *src = read_entire_file(argv[2]);
-    if (!src) {
-      fprintf(stderr, "Error: Failed to read source file '%s'\n", argv[2]);
-      return 1;
-    }
-
     int path_len = strlen(argv[2]);
-    if ((path_len > 3 && strcmp(argv[2] + path_len - 3, ".ts") == 0) ||
-        (path_len > 4 && strcmp(argv[2] + path_len - 4, ".mts") == 0)) {
-      strip_typescript_types(src);
-    }
-
-    CompiledProgram *prog = compile_source(src);
-    if (!prog) {
-      fprintf(stderr, "Compilation failed.\n");
-      free(src);
-      return 1;
-    }
-
     uint32_t serialized_size = 0;
-    uint8_t *serialized_data = serialize_program(prog, &serialized_size);
+    uint8_t *serialized_data = NULL;
+    CompiledProgram *prog = NULL;
+    char *src = NULL;
+
+    if (path_len > 5 && strcmp(argv[2] + path_len - 5, ".curi") == 0) {
+      serialized_data = read_binary_file(argv[2], &serialized_size);
+      if (!serialized_data) {
+        fprintf(stderr, "Error: Failed to read binary file '%s'\n", argv[2]);
+        return 1;
+      }
+    } else {
+      src = read_entire_file(argv[2]);
+      if (!src) {
+        fprintf(stderr, "Error: Failed to read source file '%s'\n", argv[2]);
+        return 1;
+      }
+
+      if ((path_len > 3 && strcmp(argv[2] + path_len - 3, ".ts") == 0) ||
+          (path_len > 4 && strcmp(argv[2] + path_len - 4, ".mts") == 0)) {
+        strip_typescript_types(src);
+      }
+
+      prog = compile_source(src);
+      if (!prog) {
+        fprintf(stderr, "Compilation failed.\n");
+        free(src);
+        return 1;
+      }
+
+      serialized_data = serialize_program(prog, &serialized_size);
+    }
 
     // 1. Copy the current running compiler executable driver to out
     FILE *src_exec = fopen(exec_path, "rb");
@@ -524,8 +538,8 @@ int main(int argc, char **argv) {
               "Error: Failed to read compiler driver executable at '%s'\n",
               exec_path);
       free(serialized_data);
-      free_compiled_program(prog);
-      free(src);
+      if (prog) free_compiled_program(prog);
+      if (src) free(src);
       return 1;
     }
 
@@ -535,8 +549,8 @@ int main(int argc, char **argv) {
               argv[3]);
       fclose(src_exec);
       free(serialized_data);
-      free_compiled_program(prog);
-      free(src);
+      if (prog) free_compiled_program(prog);
+      if (src) free(src);
       return 1;
     }
 
@@ -621,8 +635,8 @@ int main(int argc, char **argv) {
     chmod(argv[3], 0755);
 
     free(serialized_data);
-    free_compiled_program(prog);
-    free(src);
+    if (prog) free_compiled_program(prog);
+    if (src) free(src);
     printf("Successfully bundled standalone executable to '%s'\n", argv[3]);
     return 0;
   } else if (strcmp(command, "help") == 0) {

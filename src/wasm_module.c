@@ -1,8 +1,19 @@
 /**
  * @file wasm_module.c
- * @brief WebAssembly engine integration for Curica using WAMR.
+ * @brief WebAssembly process subsystem for the Curica Environment OS Kernel.
+ *
+ * This module enables the microkernel OS to safely spawn WASM processes directly 
+ * from JS operating natively as the systems shell scripting language. WebAssembly 
+ * modules execute within a secure sandbox governed by a strict Capability-Based 
+ * Security matrix (zero-bloat validation without UIDs/GIDs).
+ *
+ * It seamlessly interfaces with Curica's strict POSIX Virtual File System (VFS), 
+ * allowing WASM processes access to /bin, /home/user, and pseudo-filesystems 
+ * (/dev, /proc). This design easily supports frozen environments running as 
+ * Actually Portable Executables (APEs) while piping I/O efficiently.
  */
 #include "wasm_module.h"
+#include "wasi_module.h"
 #include "builtins.h"
 #include "alloc.h"
 #include "wasm_export.h"
@@ -44,6 +55,30 @@ static Value js_wasm_instantiate(VM* vm, Value this_val, int arg_count, Value* a
         return VAL_UNDEFINED;
     }
 
+    // Process importObject for WASI config
+    if (arg_count > 1 && IS_POINTER(args[1])) {
+        Value import_obj = args[1];
+        if (((BlockHeader*)get_pointer(import_obj) - 1)->obj_type == OBJ_OBJECT) {
+            Value wasi_preview1 = object_get(import_obj, create_string("wasi_snapshot_preview1", 22));
+            Value wasi_unstable = object_get(import_obj, create_string("wasi_unstable", 13));
+            
+            Value wasi_import = VAL_UNDEFINED;
+            if (IS_POINTER(wasi_preview1)) wasi_import = wasi_preview1;
+            else if (IS_POINTER(wasi_unstable)) wasi_import = wasi_unstable;
+            
+            if (IS_POINTER(wasi_import)) {
+                WASIConfig* config = wasi_get_config_from_import(vm, wasi_import);
+                if (config) {
+                    wasm_runtime_set_wasi_args(module, 
+                        NULL, 0, // dir_list
+                        (const char**)config->dir_list, config->dir_count, // map_dir_list (virtual::host)
+                        (const char**)config->env_list, config->env_count,
+                        config->arg_list, config->arg_count);
+                }
+            }
+        }
+    }
+
     wasm_module_inst_t module_inst = wasm_runtime_instantiate(module, 8192, 8192, error_buf, sizeof(error_buf));
     if (!module_inst) {
         wasm_runtime_unload(module);
@@ -54,31 +89,64 @@ static Value js_wasm_instantiate(VM* vm, Value this_val, int arg_count, Value* a
     uint32_t exports_obj_idx = vm->gc_root_count;
     Value exports_obj = create_object();
     vm_push_root(vm, exports_obj);
-
-    // WAMR doesn't have an easy "iterate all exports" function in the public API
-    // without using internal headers. We might need to just let the user call functions by name.
-    // Wait, let's look if we can extract exports in WAMR.
-    // Usually people use wasm_runtime_lookup_function to get a specific function.
-    // For now, let's create a proxy-like object or a bound method factory for exports.
-    // Actually, `wasm_module_inst_t` doesn't export function lists directly in `wasm_export.h` without internals.
-    // Let's stub the exports object and add `getFunction` or similar.
     
-    // Instead of iterating, let's provide a generic `get_export` mechanism if possible, or bind common ones.
-    // For a complete JS runtime, we should iterate. 
-    // In WAMR, we can cast `wasm_module_inst_t` to `WASMModuleInstanceCommon*` which has `module->export_functions` etc.
-    // But since we want to avoid internal headers, we will provide a `getFunction` method on the instance for now.
-    
-    uint32_t bound_ctx_idx = vm->gc_root_count;
-    Value bound_ctx = create_object();
-    vm_push_root(vm, bound_ctx);
+#if UINTPTR_MAX == UINT32_MAX
+#define DefPointer(type, field) type field; uint32_t field##_padding
+#else
+#define DefPointer(type, field) type field
+#endif
 
-    uint32_t _runtime_key_idx = vm->gc_root_count;
-    Value _runtime_key = create_string("_runtime", 8);
-    vm_push_root(vm, _runtime_key);
-    
-    object_set(vm->gc_roots[bound_ctx_idx], vm->gc_roots[_runtime_key_idx], make_pointer((void*)module_inst));
-    vm_pop_root(vm);
+    typedef struct { char *name; void *function; } WASMExportFuncInstance;
+    typedef struct { char *name; uint32_t func_index; void *func_ptr; } AOTExportFuncInstance;
 
+    struct ModuleInstanceOverlay {
+        uint32_t module_type;
+        uint32_t memory_count;
+        DefPointer(void**, memories);
+        uint32_t global_data_size;
+        uint32_t table_count;
+        DefPointer(uint8_t*, global_data);
+        DefPointer(void**, tables);
+        DefPointer(void**, func_ptrs);
+        DefPointer(uint32_t*, func_type_indexes);
+        uint32_t export_func_count;
+        uint32_t export_global_count;
+        uint32_t export_memory_count;
+        uint32_t export_table_count;
+        DefPointer(void*, export_functions);
+    };
+
+    uint32_t module_type = *(uint32_t*)module_inst;
+    struct ModuleInstanceOverlay* overlay = (struct ModuleInstanceOverlay*)module_inst;
+    
+    if (module_type == 0) { // Wasm_Module_Bytecode
+        WASMExportFuncInstance *funcs = (WASMExportFuncInstance *)overlay->export_functions;
+        for (uint32_t i = 0; i < overlay->export_func_count; i++) {
+            char* name = funcs[i].name;
+            Value bound_ctx = create_object();
+            vm_push_root(vm, bound_ctx);
+            object_set(bound_ctx, create_string("_runtime", 8), make_pointer((void*)module_inst));
+            object_set(bound_ctx, create_string("_func_name", 10), create_string(name, strlen(name)));
+            
+            Value js_func = create_bound_native_function((void*)js_wasm_invoke, create_string(name, strlen(name)), vm->gc_roots[vm->gc_root_count - 1]);
+            object_set(vm->gc_roots[exports_obj_idx], create_string(name, strlen(name)), js_func);
+            vm_pop_root(vm);
+        }
+    } else { // Wasm_Module_AoT
+        AOTExportFuncInstance *funcs = (AOTExportFuncInstance *)overlay->export_functions;
+        for (uint32_t i = 0; i < overlay->export_func_count; i++) {
+            char* name = funcs[i].name;
+            Value bound_ctx = create_object();
+            vm_push_root(vm, bound_ctx);
+            object_set(bound_ctx, create_string("_runtime", 8), make_pointer((void*)module_inst));
+            object_set(bound_ctx, create_string("_func_name", 10), create_string(name, strlen(name)));
+            
+            Value js_func = create_bound_native_function((void*)js_wasm_invoke, create_string(name, strlen(name)), vm->gc_roots[vm->gc_root_count - 1]);
+            object_set(vm->gc_roots[exports_obj_idx], create_string(name, strlen(name)), js_func);
+            vm_pop_root(vm);
+        }
+    }
+    
     uint32_t instance_obj_idx = vm->gc_root_count;
     Value instance_obj = create_object();
     vm_push_root(vm, instance_obj);
@@ -88,17 +156,8 @@ static Value js_wasm_instantiate(VM* vm, Value this_val, int arg_count, Value* a
     vm_push_root(vm, exports_key);
     
     object_set(vm->gc_roots[instance_obj_idx], vm->gc_roots[exports_key_idx], vm->gc_roots[exports_obj_idx]);
+    vm_pop_root(vm); // exports_key
     
-    // Add getFunction
-    uint32_t get_fn_key_idx = vm->gc_root_count;
-    Value get_fn_key = create_string("getFunction", 11);
-    vm_push_root(vm, get_fn_key);
-    
-    Value get_fn = create_bound_native_function((void*)js_wasm_invoke, VAL_UNDEFINED, vm->gc_roots[bound_ctx_idx]);
-    object_set(vm->gc_roots[instance_obj_idx], vm->gc_roots[get_fn_key_idx], get_fn);
-    
-    vm_pop_root(vm); // pops get_fn_key
-    vm_pop_root(vm); // pops exports_key
     uint32_t module_obj_idx = vm->gc_root_count;
     Value module_obj = create_object();
     vm_push_root(vm, module_obj);
@@ -136,22 +195,22 @@ static Value js_wasm_invoke(VM* vm, Value this_val, int arg_count, Value* args) 
     uint32_t this_idx = vm->gc_root_count;
     vm_push_root(vm, this_val);
     
-    uint32_t runtime_key_idx = vm->gc_root_count;
     Value runtime_key = create_string("_runtime", 8);
     vm_push_root(vm, runtime_key);
+    Value runtime_val = object_get(vm->gc_roots[this_idx], vm->gc_roots[vm->gc_root_count - 1]);
+    vm_pop_root(vm);
     
-    Value runtime_val = object_get(vm->gc_roots[this_idx], vm->gc_roots[runtime_key_idx]);
-    vm_pop_root(vm); // runtime_key
+    Value func_name_key = create_string("_func_name", 10);
+    vm_push_root(vm, func_name_key);
+    Value func_name_val = object_get(vm->gc_roots[this_idx], vm->gc_roots[vm->gc_root_count - 1]);
+    vm_pop_root(vm);
+    
     vm_pop_root(vm); // this_val
     
-    if (!IS_POINTER(runtime_val)) return VAL_UNDEFINED;
+    if (!IS_POINTER(runtime_val) || !IS_POINTER(func_name_val)) return VAL_UNDEFINED;
     
-    if (arg_count < 1 || !IS_POINTER(args[0])) return VAL_UNDEFINED;
-    BlockHeader* h = (BlockHeader*)get_pointer(args[0]) - 1;
-    if (h->obj_type != OBJ_STRING) return VAL_UNDEFINED;
-
     wasm_module_inst_t module_inst = (wasm_module_inst_t)get_pointer(runtime_val);
-    JSString* func_name_str = (JSString*)get_pointer(args[0]);
+    JSString* func_name_str = (JSString*)get_pointer(func_name_val);
     
     wasm_function_inst_t func = wasm_runtime_lookup_function(module_inst, func_name_str->data, NULL);
     if (!func) {
@@ -162,14 +221,13 @@ static Value js_wasm_invoke(VM* vm, Value this_val, int arg_count, Value* args) 
     if (!exec_env) return VAL_UNDEFINED;
     
     uint32_t wasm_args[32] = {0};
-    int passed_args = arg_count - 1;
+    int passed_args = arg_count;
     
     for (int i = 0; i < passed_args && i < 32; i++) {
-        Value arg_val = args[i + 1];
+        Value arg_val = args[i];
         if (IS_INTEGER(arg_val)) {
             wasm_args[i] = (uint32_t)get_integer(arg_val);
         } else if (IS_DOUBLE(arg_val)) {
-            // Very naive float conversion
             wasm_args[i] = (uint32_t)get_double(arg_val);
         }
     }

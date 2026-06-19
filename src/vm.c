@@ -1,9 +1,18 @@
 /**
  * @file vm.c
- * @brief Core Virtual Machine implementation for Curica.
+ * @brief Core Virtual Machine implementation for the Curica Environment OS Kernel.
  * 
  * Handles the bytecode dispatch loop, CallFrame stack management, context switching,
- * NaN-boxed value operations, and async coroutine (ucontext_t) execution.
+ * NaN-boxed value operations, and async coroutine (ucontext_t) execution for the 
+ * secure microkernel OS.
+ *
+ * The VM serves as the execution engine using JS natively as the systems shell 
+ * scripting language to pipe I/O and spawn WASM processes. Execution is governed 
+ * by a strict Capability-Based Security matrix, guaranteeing zero-bloat validation 
+ * without UIDs/GIDs. This ensures secure sandbox containment when operating over 
+ * the strict POSIX Virtual File System (VFS) (including /bin, /home/user, /dev, 
+ * /proc) or when running frozen environments packaged as Actually Portable 
+ * Executables (APEs).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -736,45 +745,37 @@ Value js_array_map(VM* vm, Value this_val, int arg_count, Value* args) {
     if (!IS_POINTER(this_val) || arg_count < 1 || !IS_POINTER(args[0])) return VAL_UNDEFINED;
     BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
     if (h->obj_type != OBJ_ARRAY) return VAL_UNDEFINED;
-    
-    JSArray* arr = (JSArray*)get_pointer(this_val);
-    Value callback = args[0];
-    
-    Value res_val = create_array(arr->length);
-    JSArray* res_arr = (JSArray*)get_pointer(res_val);
-    res_arr->length = arr->length;
-    
-    for (uint32_t i = 0; i < arr->length; i++) {
-        Value cb_args[3];
-        cb_args[0] = arr->elements[i];
-        cb_args[1] = make_integer(i);
-        cb_args[2] = this_val;
-        res_arr->elements[i] = vm_call_function(vm, callback, 3, cb_args);
+    uint32_t ti = vm->gc_root_count; vm_push_root(vm, this_val);
+    uint32_t ci = vm->gc_root_count; vm_push_root(vm, args[0]);
+    JSArray* arr = (JSArray*)get_pointer(vm->gc_roots[ti]);
+    uint32_t len = arr->length;
+    uint32_t ri = vm->gc_root_count; vm_push_root(vm, create_array(len));
+    JSArray* res = (JSArray*)get_pointer(vm->gc_roots[ri]); res->length = len;
+    for (uint32_t i = 0; i < len; i++) {
+        arr = (JSArray*)get_pointer(vm->gc_roots[ti]);
+        Value cb_args[3] = { arr->elements[i], make_integer(i), vm->gc_roots[ti] };
+        Value mapped = vm_call_function(vm, vm->gc_roots[ci], 3, cb_args);
+        res = (JSArray*)get_pointer(vm->gc_roots[ri]); res->elements[i] = mapped;
     }
-    return res_val;
+    Value r = vm->gc_roots[ri]; vm_pop_root(vm); vm_pop_root(vm); vm_pop_root(vm); return r;
 }
 
 Value js_array_filter(VM* vm, Value this_val, int arg_count, Value* args) {
     if (!IS_POINTER(this_val) || arg_count < 1 || !IS_POINTER(args[0])) return VAL_UNDEFINED;
     BlockHeader* h = (BlockHeader*)((char*)get_pointer(this_val) - sizeof(BlockHeader));
     if (h->obj_type != OBJ_ARRAY) return VAL_UNDEFINED;
-    
-    JSArray* arr = (JSArray*)get_pointer(this_val);
-    Value callback = args[0];
-    
-    Value res_val = create_array(0);
-    
-    for (uint32_t i = 0; i < arr->length; i++) {
-        Value cb_args[3];
-        cb_args[0] = arr->elements[i];
-        cb_args[1] = make_integer(i);
-        cb_args[2] = this_val;
-        Value match = vm_call_function(vm, callback, 3, cb_args);
-        if (is_truthy(match)) {
-            array_push(res_val, arr->elements[i]);
-        }
+    uint32_t ti = vm->gc_root_count; vm_push_root(vm, this_val);
+    uint32_t ci = vm->gc_root_count; vm_push_root(vm, args[0]);
+    JSArray* arr = (JSArray*)get_pointer(vm->gc_roots[ti]);
+    uint32_t len = arr->length;
+    uint32_t ri = vm->gc_root_count; vm_push_root(vm, create_array(0));
+    for (uint32_t i = 0; i < len; i++) {
+        arr = (JSArray*)get_pointer(vm->gc_roots[ti]);
+        Value cb_args[3] = { arr->elements[i], make_integer(i), vm->gc_roots[ti] };
+        Value match = vm_call_function(vm, vm->gc_roots[ci], 3, cb_args);
+        if (is_truthy(match)) { arr = (JSArray*)get_pointer(vm->gc_roots[ti]); array_push(vm->gc_roots[ri], arr->elements[i]); }
     }
-    return res_val;
+    Value r = vm->gc_roots[ri]; vm_pop_root(vm); vm_pop_root(vm); vm_pop_root(vm); return r;
 }
 
 static Value js_throw_error(VM* vm, Value this_val, int arg_count, Value* args) {
@@ -1125,6 +1126,12 @@ void vm_init(VM* vm) {
     ARR_PROTO("at", 2, js_array_at);
     ARR_PROTO("concat", 6, js_array_concat_method);
     ARR_PROTO("toString", 8, js_array_to_string);
+    extern Value js_array_shift(VM* vm, Value this_val, int arg_count, Value* args);
+    extern Value js_array_unshift(VM* vm, Value this_val, int arg_count, Value* args);
+    extern Value js_array_last_index_of(VM* vm, Value this_val, int arg_count, Value* args);
+    ARR_PROTO("shift", 5, js_array_shift);
+    ARR_PROTO("unshift", 7, js_array_unshift);
+    ARR_PROTO("lastIndexOf", 11, js_array_last_index_of);
 #undef ARR_PROTO
 
     // ── Function prototype ────────────────────────────────────────────────────
@@ -1274,11 +1281,13 @@ void vm_init(VM* vm) {
 
     // ── Well-known Symbols ────────────────────────────────────────────────────
     vm->symbol_iterator    = create_symbol(create_string("Symbol.iterator", 15));
+    vm->symbol_async_iterator = create_symbol(create_string("Symbol.asyncIterator", 20));
     vm->symbol_dispose     = create_symbol(create_string("Symbol.dispose", 14));
     vm->symbol_async_dispose = create_symbol(create_string("Symbol.asyncDispose", 19));
 
     Value symbol_ctor = create_native_function((void*)js_symbol_constructor, create_string("Symbol", 6));
     object_set(symbol_ctor, create_string("iterator", 8), vm->symbol_iterator);
+    object_set(symbol_ctor, create_string("asyncIterator", 13), vm->symbol_async_iterator);
     object_set(symbol_ctor, create_string("dispose", 7), vm->symbol_dispose);
     object_set(symbol_ctor, create_string("asyncDispose", 12), vm->symbol_async_dispose);
     object_set(vm->global_obj, create_string("Symbol", 6), symbol_ctor);
@@ -1312,6 +1321,12 @@ void vm_init(VM* vm) {
     
     extern void vm_register_webview(VM* vm);
     vm_register_webview(vm);
+    
+    extern void vm_register_ffi_module(VM* vm);
+    vm_register_ffi_module(vm);
+    
+    extern void vm_register_atomics(VM* vm);
+    vm_register_atomics(vm);
 
     object_set(vm->global_obj, create_string("parseInt", 8), create_native_function((void*)js_parse_int, create_string("parseInt", 8)));
     object_set(vm->global_obj, create_string("parseFloat", 10), create_native_function((void*)js_parse_float, create_string("parseFloat", 10)));
@@ -1322,10 +1337,10 @@ void vm_init(VM* vm) {
 
     // ── RegExp ────────────────────────────────────────────────────────────────
     Value regexp_ctor = create_native_function((void*)js_regexp_constructor, create_string("RegExp", 6));
-    Value regexp_proto = create_object();
-    object_set(regexp_proto, create_string("test", 4), create_native_function((void*)js_regexp_test, create_string("test", 4)));
-    object_set(regexp_proto, create_string("exec", 4), create_native_function((void*)js_regexp_exec, create_string("exec", 4)));
-    object_set(regexp_ctor, create_string("prototype", 9), regexp_proto);
+    vm->regexp_prototype = create_object();
+    object_set(vm->regexp_prototype, create_string("test", 4), create_native_function((void*)js_regexp_test, create_string("test", 4)));
+    object_set(vm->regexp_prototype, create_string("exec", 4), create_native_function((void*)js_regexp_exec, create_string("exec", 4)));
+    object_set(regexp_ctor, create_string("prototype", 9), vm->regexp_prototype);
     object_set(vm->global_obj, create_string("RegExp", 6), regexp_ctor);
 
     // ── Web Worker ────────────────────────────────────────────────────────────
@@ -1735,6 +1750,9 @@ Value vm_run(VM* vm) {
         &&do_iter_next,         // OP_ITER_NEXT
         &&do_for_in_next,       // OP_FOR_IN_NEXT
         &&do_get_iter,          // OP_GET_ITER
+        &&do_get_async_iter,    // OP_GET_ASYNC_ITER
+        &&do_async_iter_next,   // OP_ASYNC_ITER_NEXT
+        &&do_unpack_iter_res,   // OP_UNPACK_ITER_RES
         &&do_print,             // OP_PRINT
         &&do_await,             // OP_AWAIT
         &&do_yield,             // OP_YIELD
@@ -2853,6 +2871,55 @@ do_get_iter: {
     uint8_t a = INST_A(*pc);
     uint8_t b = INST_B(*pc);
     regs[a] = regs[b];
+    NEXT();
+}
+do_get_async_iter: {
+    uint8_t a = INST_A(*pc);
+    uint8_t b = INST_B(*pc);
+    Value iter = VAL_UNDEFINED;
+    if (IS_POINTER(regs[b])) {
+        iter = object_get(regs[b], vm->symbol_async_iterator);
+        if (!IS_POINTER(iter) || IS_NULL(iter) || IS_UNDEFINED(iter)) {
+            // Fallback to Symbol.iterator
+            iter = object_get(regs[b], vm->symbol_iterator);
+        }
+        if (IS_POINTER(iter)) {
+            regs[a] = vm_call_function(vm, iter, 0, NULL);
+        } else {
+            regs[a] = VAL_UNDEFINED;
+        }
+    } else {
+        regs[a] = VAL_UNDEFINED;
+    }
+    NEXT();
+}
+do_async_iter_next: {
+    uint8_t a = INST_A(*pc);
+    uint8_t b = INST_B(*pc);
+    Value iter = regs[b];
+    Value next_fn = VAL_UNDEFINED;
+    if (IS_POINTER(iter)) {
+        next_fn = object_get(iter, create_string("next", 4));
+    }
+    if (IS_POINTER(next_fn)) {
+        regs[a] = vm_call_function(vm, next_fn, 0, NULL);
+    } else {
+        regs[a] = VAL_UNDEFINED;
+    }
+    NEXT();
+}
+do_unpack_iter_res: {
+    uint8_t a = INST_A(*pc);
+    uint8_t b = INST_B(*pc);
+    uint8_t c = INST_C(*pc);
+    Value res = regs[c];
+    if (IS_POINTER(res)) {
+        regs[a] = object_get(res, create_string("value", 5));
+        regs[b] = object_get(res, create_string("done", 4));
+    } else {
+        regs[a] = VAL_UNDEFINED;
+        regs[b] = VAL_TRUE;
+    }
     NEXT();
 }
 do_yield: {

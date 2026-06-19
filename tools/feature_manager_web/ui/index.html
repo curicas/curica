@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Curica Feature Manager Web</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h2>Curica Features</h2>
+            </div>
+            <ul class="nav-links">
+                <li class="active" data-status="proposed">
+                    <span class="icon">📝</span> Proposed
+                </li>
+                <li data-status="approved">
+                    <span class="icon">👍</span> Approved
+                </li>
+                <li data-status="completed">
+                    <span class="icon">✅</span> Completed
+                </li>
+            </ul>
+            <div class="category-filters-section">
+                <h3>Categories</h3>
+                <input type="text" class="category-search" id="category-search" placeholder="Filter categories..." />
+                <div class="category-list" id="category-list">
+                    <!-- Categories injected here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="main-content">
+            <div class="content-header">
+                <h1 id="status-title">Proposed Features</h1>
+            </div>
+            
+            <div class="content-body" id="feature-grid">
+                <!-- Feature cards injected here -->
+            </div>
+
+            <!-- Detail View -->
+            <div class="content-body hidden" id="feature-detail-view">
+                <button id="btn-back" class="secondary-btn">Back to Grid</button>
+                <div class="detail-actions" id="detail-actions">
+                    <!-- Actions injected here -->
+                </div>
+                
+                <h2 id="detail-title" class="detail-title"></h2>
+                <div id="detail-tags" class="feature-tags"></div>
+                <div class="detail-content" id="detail-content"></div>
+
+                <!-- Terminal Execution Section -->
+                <div class="terminal-section">
+                    <h3>Terminal Tasks</h3>
+                    <div class="terminal-input-group">
+                        <input type="text" id="term-input" placeholder="e.g. make test or ./build/curica run tests/test.js" />
+                        <button id="btn-execute" class="suggested">Execute</button>
+                    </div>
+                    <pre class="terminal-output" id="term-output">Ready.</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="frontend.js"></script>
+</body>
+</html>

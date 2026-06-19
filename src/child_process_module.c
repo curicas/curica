@@ -1,12 +1,16 @@
 /**
  * @file child_process_module.c
- * @brief Node.js 'child_process' native bindings for Curica Runtime.
+ * @brief Process spawning subsystem for the Curica Environment OS Kernel.
  * 
- * This module provides the native `spawn_native` interface which allows JavaScript 
- * to execute system binaries via `fork()` and `execvp()`. It creates pipes for 
- * `stdin`, `stdout`, and `stderr`, configures them for non-blocking I/O, and 
- * registers them with the Curica Event Loop (`event_loop.c`) to seamlessly 
- * bridge POSIX pipes into JavaScript asynchronous stream events.
+ * This module allows JS natively acting as the systems shell scripting language 
+ * to seamlessly execute binaries and spawn WASM processes within the secure 
+ * microkernel OS. It handles piping I/O (stdin, stdout, stderr) robustly.
+ *
+ * Process execution relies heavily on the strict POSIX Virtual File System (VFS) 
+ * containing /bin, /home/user, and pseudo-filesystems (/dev, /proc). All process 
+ * control operates under the strict Capability-Based Security matrix, enforcing 
+ * zero-bloat validation without UIDs/GIDs, ensuring absolute isolation for 
+ * frozen environments and Actually Portable Executables (APEs).
  */
 #include "child_process_module.h"
 #include "alloc.h"

@@ -475,6 +475,28 @@ Value object_get(Value obj_val, Value key_val) {
         return VAL_UNDEFINED;
     }
     
+    if (header->obj_type == OBJ_REGEXP) {
+        JSString* str = (JSString*)get_pointer(key_val);
+        if (str && str->length == 6 && strcmp(str->data, "source") == 0) {
+            JSRegExp* re = (JSRegExp*)ptr;
+            return re->source;
+        }
+        if (str && str->length == 5 && strcmp(str->data, "flags") == 0) {
+            JSRegExp* re = (JSRegExp*)ptr;
+            return re->flags;
+        }
+        if (g_current_vm && IS_POINTER(g_current_vm->regexp_prototype)) {
+            Value func = object_get(g_current_vm->regexp_prototype, key_val);
+            if (IS_POINTER(func)) {
+                JSFunction* f = (JSFunction*)get_pointer(func);
+                if (f->bytecode_offset == 0xffffffff) {
+                    return create_bound_native_function(f->native_ptr, f->name, obj_val);
+                }
+            }
+        }
+        return VAL_UNDEFINED;
+    }
+    
     if (header->obj_type == OBJ_PROMISE) {
         JSString* str = (JSString*)get_pointer(key_val);
         if (str && str->length == 4 && strcmp(str->data, "then") == 0) {
@@ -1518,7 +1540,9 @@ void gc_minor(VM* vm) {
     minor_copy_value(&vm->promise_prototype);
     minor_copy_value(&vm->iterator_prototype);
     minor_copy_value(&vm->error_prototype);
+    minor_copy_value(&vm->regexp_prototype);
     minor_copy_value(&vm->symbol_iterator);
+    minor_copy_value(&vm->symbol_async_iterator);
     minor_copy_value(&vm->symbol_dispose);
     minor_copy_value(&vm->symbol_async_dispose);
     
@@ -1623,7 +1647,9 @@ void gc_major(VM* vm) {
     gc_mark_value(vm->promise_prototype);
     gc_mark_value(vm->iterator_prototype);
     gc_mark_value(vm->error_prototype);
+    gc_mark_value(vm->regexp_prototype);
     gc_mark_value(vm->symbol_iterator);
+    gc_mark_value(vm->symbol_async_iterator);
     gc_mark_value(vm->symbol_dispose);
     gc_mark_value(vm->symbol_async_dispose);
     

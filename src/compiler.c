@@ -2090,7 +2090,7 @@ static ASTNode* parse_statement(Parser* parser) {
                     n->as.for_of.is_const = decl ? decl->as.var_decl.is_const : false;
                     n->as.for_of.iterable = iterable;
                     n->as.for_of.body = body;
-                    (void)for_await;
+                    n->as.for_of.is_await = for_await;
                     return n;
                 } else {
                     ASTNode* n = ast_new_node(AST_FOR_IN);
@@ -3271,8 +3271,13 @@ static int compile_node(ASTNode* node, CompiledProgram* prog, CompilerScope* sco
             int iter_r = alloc_register(emit);
             int iter_idx_r = alloc_register(emit);
             emit_instruction(prog, make_asbx(OP_LOAD_INT, iter_idx_r, 0));
-            emit_instruction(prog, make_abc(OP_GET_ITER, iter_r, iter_src_r, 0));
-            free_registers(emit, iter_src_r);
+            if (node->as.for_of.is_await) {
+                emit_instruction(prog, make_abc(OP_GET_ASYNC_ITER, iter_r, iter_src_r, 0));
+            } else {
+                emit_instruction(prog, make_abc(OP_GET_ITER, iter_r, iter_src_r, 0));
+            }
+            // Cannot free iter_src_r here because free_registers truncates the stack!
+            // We just let it be reused at the end of the loop when base_r is restored.
             // Allocate binding var
             int bind_r = alloc_register(emit);
             if (node->as.for_of.binding_name && inner) {
@@ -3287,7 +3292,15 @@ static int compile_node(ASTNode* node, CompiledProgram* prog, CompilerScope* sco
             int result_r = alloc_register(emit);
             int done_r = alloc_register(emit);
             int loop_start = (int)prog->bytecode_size;
-            emit_instruction(prog, make_abc(OP_ITER_NEXT, result_r, done_r, iter_r));
+            if (node->as.for_of.is_await) {
+                int prom_r = alloc_register(emit);
+                emit_instruction(prog, make_abc(OP_ASYNC_ITER_NEXT, prom_r, iter_r, 0));
+                emit_instruction(prog, make_abc(OP_AWAIT, prom_r, prom_r, 0));
+                emit_instruction(prog, make_abc(OP_UNPACK_ITER_RES, result_r, done_r, prom_r));
+                free_registers(emit, prom_r);
+            } else {
+                emit_instruction(prog, make_abc(OP_ITER_NEXT, result_r, done_r, iter_r));
+            }
             int jf_idx = (int)prog->bytecode_size;
             emit_instruction(prog, make_asbx(OP_JUMP_IF_TRUE, done_r, 0));
             

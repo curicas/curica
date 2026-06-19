@@ -148,6 +148,7 @@ typedef struct VM {
     Value iterator_prototype;
     Value error_prototype;
     Value promise_prototype;
+    Value regexp_prototype;
     
     // Exception handling (linked stack)
     VMErrorHandler* error_handler;
@@ -165,6 +166,7 @@ typedef struct VM {
     
     // Well-known Symbols
     Value symbol_iterator;
+    Value symbol_async_iterator;
     Value symbol_dispose;
     Value symbol_async_dispose;
     

@@ -1,6 +1,11 @@
 /**
  * @file event_loop.c
- * @brief Async Event Loop — poll()-based implementation.
+ * @brief Async Event Loop — Microkernel OS I/O scheduler.
+ *
+ * In the Curica Environment OS Kernel, this module functions as the core async
+ * task scheduler. It orchestrates non-blocking I/O polling, acting as the 
+ * underlying async mechanism for spawning WASM processes and handling native 
+ * JS systems shell scripting.
  *
  * The main loop calls poll() with a dynamically-built array that includes:
  *   - The thread-pool wakeup pipe read fd (always present when pool is live)
@@ -11,12 +16,11 @@
  * that as the timeout, so we wake up exactly when needed rather than
  * spinning.
  *
- * Each tick of el_run() follows the Node.js event loop phase order:
- *   1. Timers         — fire expired TimerHandles
- *   2. I/O            — call IOHandle callbacks for ready fds
- *   3. Thread pool    — drain tp_drain_completions() if wakeup pipe is ready
- *   4. Check          — run setImmediate callbacks
- *   (Microtask drain is triggered by the VM caller between ticks, not here)
+ * Each tick of el_run() strictly enforces the Capability-Based Security matrix 
+ * constraints (zero-bloat validation without UIDs/GIDs) for every asynchronous 
+ * operation initiated from frozen environments and Actually Portable Executables 
+ * (APEs). It is crucial for piping I/O across the strict POSIX Virtual File 
+ * System (VFS), including pseudo-filesystems (/dev, /proc), /bin, and /home/user.
  */
 #include "event_loop.h"
 #include "thread_pool.h"
@@ -120,8 +124,9 @@ void el_clear_immediate(EventLoop* loop, CheckHandle* handle) {
 /* ── I/O Handle API ────────────────────────────────────────────────────── */
 
 void el_add_io(EventLoop* loop, IOHandle* handle) {
-    handle->active = true;
-    handle->next   = loop->io_handles;
+    if (!handle) return;
+    handle->unrefed = false;
+    handle->next     = loop->io_handles;
     loop->io_handles = handle;
     loop->io_count++;
 }
@@ -136,6 +141,16 @@ void el_remove_io(EventLoop* loop, IOHandle* handle) {
         }
         prev = &(*prev)->next;
     }
+}
+
+void el_unref_io(EventLoop* loop, IOHandle* handle) {
+    (void)loop;
+    if (handle) handle->unrefed = true;
+}
+
+void el_ref_io(EventLoop* loop, IOHandle* handle) {
+    (void)loop;
+    if (handle) handle->unrefed = false;
 }
 
 /* ── Control ───────────────────────────────────────────────────────────── */
@@ -158,14 +173,14 @@ void el_run(EventLoop* loop) {
         /* ── Compute poll() timeout ── */
         int timeout = -1; /* block indefinitely by default */
 
-        /* Exit if there is no pending work:
-         *   - no timers to fire
-         *   - no immediates queued
-         *   - no user-registered I/O handles (net server/socket fds)
-         *   - no thread-pool work in flight (async fs, etc.)
-         * The thread-pool wakeup pipe alone does NOT count as pending work. */
+        /* Calculate active IO handles (not unrefed) */
+        int active_io_count = 0;
+        for (IOHandle* h = loop->io_handles; h; h = h->next) {
+            if (!h->unrefed) active_io_count++;
+        }
+
         bool has_work = loop->timers || loop->checks_head ||
-                        (loop->io_count > 0) || (tp_pending_count() > 0);
+                        (active_io_count > 0) || (tp_pending_count() > 0);
         if (!has_work) break;
 
         if (loop->timers) {

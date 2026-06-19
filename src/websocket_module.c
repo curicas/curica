@@ -1,10 +1,17 @@
 /**
  * @file websocket_module.c
- * @brief Native WebSocket Client Implementation
+ * @brief Native WebSocket Subsystem for the Curica Environment OS Kernel.
  * 
  * Implements a high-performance, RFC-6455 compliant WebSocket client natively.
  * It handles the WebSocket handshake over HTTP/HTTPS, masks frames securely,
- * and processes asynchronous network frames completely within the event loop.
+ * and processes asynchronous network frames completely within the microkernel OS 
+ * event loop.
+ *
+ * Integrated tightly with the strict Capability-Based Security matrix to ensure
+ * zero-bloat validation without UIDs/GIDs when used by JS natively as the systems 
+ * shell scripting language or by spawned WASM processes within frozen environments 
+ * and Actually Portable Executables (APEs). Works harmoniously with the strict 
+ * POSIX Virtual File System (VFS) (/bin, /home/user, /dev, /proc).
  */
 #include "vm.h"
 #include "event_loop.h"

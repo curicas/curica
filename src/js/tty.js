@@ -8,6 +8,7 @@ function isatty(fd) {
 
 function ReadStream(fd) {
     var sock = net._createSocketFromFd(fd);
+    if (sock.unref) sock.unref();
     sock.isTTY = isatty(fd);
     sock.isRaw = false;
     sock.setRawMode = function(mode) {
@@ -23,6 +24,7 @@ function ReadStream(fd) {
 
 function WriteStream(fd) {
     var sock = net._createSocketFromFd(fd);
+    if (sock.unref) sock.unref();
     sock.isTTY = isatty(fd);
     sock.columns = 80;
     sock.rows = 24;

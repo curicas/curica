@@ -162,6 +162,7 @@ typedef struct {
     ASTNode* iterable;
     ASTNode* body;
     bool is_const;
+    bool is_await;
 } ASTForOf;
 
 typedef struct {

@@ -68,6 +68,7 @@ Menu.prototype.run = function() {
         function onData(buf) {
             var str = buf.toString();
             if (str === '\u0003') { // Ctrl+C
+                process.stdin.setRawMode(false);
                 process.stdout.write(C.show + C.clear);
                 process.exit(0);
             } else if (str === '\x1b[A') { // Up
@@ -167,7 +168,11 @@ async function readFeatureFile(filePath) {
         draw();
         function onData(buf) {
             var str = buf.toString();
-            if (str === 'q' || str === '\u0003' || str === '\r' || str === '\n') {
+            if (str === '\u0003') {
+                process.stdin.setRawMode(false);
+                process.stdout.write(C.show + C.clear);
+                process.exit(0);
+            } else if (str === 'q' || str === '\r' || str === '\n') {
                 process.stdin.removeListener('data', onData);
                 resolve();
             } else if (str === '\x1b[A') { // Up
@@ -272,6 +277,8 @@ async function main() {
 }
 
 main().catch(function(e) {
+    process.stdin.setRawMode(false);
     process.stdout.write(C.show);
-    console.error(e);
+    console.log("Error:", e.message || e, e.stack);
+    process.exit(1);
 });
