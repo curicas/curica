@@ -4,7 +4,7 @@ console.log("TEST_ENV_VAR:", os.getenv("TEST_ENV_VAR"));
 
 async function testAsync() {
     console.log("testAsync 1");
-    await Promise.resolve(42);
-    console.log("testAsync 2");
+    // const r = await fetch("https://example.com");
+    // console.log(await r.text());
 }
 testAsync();

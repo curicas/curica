@@ -18,6 +18,9 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #ifdef __COSMOPOLITAN__
 int pledge(const char *promises, const char *execpromises);
 #endif
@@ -269,6 +272,27 @@ int main(int argc, char **argv) {
         vm.allow_run = true;
       } else if (strcmp(argv[arg_idx], "--allow-ffi") == 0) {
         vm.allow_ffi = true;
+      } else if (strncmp(argv[arg_idx], "--attach=", 9) == 0) {
+        const char* attach_path = argv[arg_idx] + 9;
+        int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+        if (fd >= 0) {
+            struct sockaddr_un un_addr = {0};
+            un_addr.sun_family = AF_UNIX;
+            strncpy(un_addr.sun_path, attach_path, sizeof(un_addr.sun_path) - 1);
+            if (connect(fd, (struct sockaddr*)&un_addr, sizeof(un_addr)) == 0) {
+                int flags = fcntl(fd, F_GETFL, 0);
+                fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+                vm.ipc_fd = fd;
+                extern Value js_make_socket_object(VM* vm, int fd);
+                Value process_str = create_string("process", 7);
+                Value process_obj = object_get(vm.global_obj, process_str);
+                object_set(process_obj, create_string("ipcSocket", 9), js_make_socket_object(&vm, fd));
+            } else {
+                fprintf(stderr, "Failed to attach to IPC socket: %s\n", attach_path);
+                close(fd);
+                return 1;
+            }
+        }
       } else {
         fprintf(stderr, "Unknown flag: %s\n", argv[arg_idx]);
         return 1;

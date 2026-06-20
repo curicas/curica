@@ -28,6 +28,7 @@
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
+#include <sys/un.h>
 
 #define ENFORCE_NET_ACCESS(vm) \
     if (!(vm)->allow_net) { \
@@ -291,7 +292,7 @@ static Value js_socket_ref(VM* vm, Value this_val, int arg_count, Value* args) {
 }
 
 /** Build a JS Socket object, binding all methods with the handle in env. */
-static Value make_socket_object(VM* vm, int fd) {
+Value js_make_socket_object(VM* vm, int fd) {
     SocketHandle* s = (SocketHandle*)calloc(1, sizeof(SocketHandle));
     s->vm = vm; s->fd = fd;
     s->on_data = s->on_close = s->on_connect = VAL_NULL;
@@ -329,7 +330,7 @@ static void server_accept_cb(void* user_data, int revents) {
     if (conn_fd < 0) return;
     make_nonblock(conn_fd);
 
-    Value sock_obj = make_socket_object(srv->vm, conn_fd);
+    Value sock_obj = js_make_socket_object(srv->vm, conn_fd);
 
     char ip_str[INET_ADDRSTRLEN] = {0};
     inet_ntop(AF_INET, &peer.sin_addr, ip_str, sizeof(ip_str));
@@ -449,18 +450,42 @@ static Value js_net_connect(VM* vm, Value this_val, int arg_count, Value* args) 
     }
     if (arg_count >= 3 && IS_POINTER(args[2])) on_connect = args[2];
 
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) {
-        vm_throw_error(vm, create_system_error(vm, errno, "socket", "net.connect"));
-        return VAL_UNDEFINED;
+    int fd = -1;
+    bool is_mocked = false;
+    
+    // Check if network mock exists
+    for (int i = 0; i < vm->net_mock_count; i++) {
+        if (vm->net_mocks[i].port == port && strcmp(vm->net_mocks[i].host, host) == 0) {
+            is_mocked = true;
+            fd = socket(AF_UNIX, SOCK_STREAM, 0);
+            if (fd < 0) {
+                vm_throw_error(vm, create_system_error(vm, errno, "socket", "net.connect(mock)"));
+                return VAL_UNDEFINED;
+            }
+            make_nonblock(fd);
+            
+            struct sockaddr_un un_addr = {0};
+            un_addr.sun_family = AF_UNIX;
+            strncpy(un_addr.sun_path, vm->net_mocks[i].unix_socket_path, sizeof(un_addr.sun_path) - 1);
+            connect(fd, (struct sockaddr*)&un_addr, sizeof(un_addr));
+            break;
+        }
     }
-    make_nonblock(fd);
+    
+    if (!is_mocked) {
+        fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (fd < 0) {
+            vm_throw_error(vm, create_system_error(vm, errno, "socket", "net.connect"));
+            return VAL_UNDEFINED;
+        }
+        make_nonblock(fd);
 
-    struct sockaddr_in addr = {0};
-    addr.sin_family = AF_INET;
-    addr.sin_port   = htons((uint16_t)port);
-    inet_pton(AF_INET, host, &addr.sin_addr);
-    connect(fd, (struct sockaddr*)&addr, sizeof(addr)); /* EINPROGRESS expected */
+        struct sockaddr_in addr = {0};
+        addr.sin_family = AF_INET;
+        addr.sin_port   = htons((uint16_t)port);
+        inet_pton(AF_INET, host, &addr.sin_addr);
+        connect(fd, (struct sockaddr*)&addr, sizeof(addr)); /* EINPROGRESS expected */
+    }
 
     SocketHandle* s = (SocketHandle*)calloc(1, sizeof(SocketHandle));
     s->vm = vm; s->fd = fd;
@@ -488,7 +513,7 @@ static Value js_net_create_socket_from_fd(VM* vm, Value this_val, int arg_count,
     if (arg_count < 1 || !IS_INTEGER(args[0])) return VAL_UNDEFINED;
     int fd = get_integer(args[0]);
     make_nonblock(fd);
-    return make_socket_object(vm, fd);
+    return js_make_socket_object(vm, fd);
 }
 
 /* ── Module factory ─────────────────────────────────────────────────────── */

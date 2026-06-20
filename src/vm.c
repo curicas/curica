@@ -1023,6 +1023,10 @@ void vm_init(VM* vm) {
     vm->allow_run = false;
     vm->allow_ffi = false;
     
+    vm->net_mock_count = 0;
+    vm->ipc_fd = -1;
+    vm->ipc_io = NULL;
+    
     // Bind global 'console' object with 'log' method
     Value console_name = create_string("console", 7);
     Value log_name = create_string("log", 3);
@@ -1057,6 +1061,10 @@ void vm_init(VM* vm) {
     object_set(process_obj, create_string("dlopen", 6), create_native_function((void*)js_process_dlopen, create_string("dlopen", 6)));
     object_set(process_obj, create_string("__require", 9), create_native_function((void*)js_process_require, create_string("__require", 9)));
     object_set(vm->global_obj, create_string("process", 7), process_obj);
+    if (vm->ipc_fd >= 0) {
+        extern Value js_make_socket_object(VM* vm, int fd);
+        object_set(process_obj, create_string("ipcSocket", 9), js_make_socket_object(vm, vm->ipc_fd));
+    }
 
     extern Value js_queue_microtask(VM* vm, Value this_val, int arg_count, Value* args);
     object_set(vm->global_obj, create_string("queueMicrotask", 14), create_native_function((void*)js_queue_microtask, create_string("queueMicrotask", 14)));

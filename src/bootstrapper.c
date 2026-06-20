@@ -66,6 +66,38 @@ char* bootstrap_environment(VM* vm, const char* json_path) {
         }
     }
 
+    // 2.5 Virtual Networking Mocks (Phase 2.4)
+    cJSON* net_mocks = cJSON_GetObjectItemCaseSensitive(root, "network_mocks");
+    if (net_mocks) {
+        cJSON* mock = NULL;
+        cJSON_ArrayForEach(mock, net_mocks) {
+            if (cJSON_IsString(mock) && vm->net_mock_count < 16) {
+                if (!mock->string || !mock->valuestring) continue;
+                // mock->string is "host:port", mock->valuestring is "unix:/path/to.sock"
+                char host_buf[256];
+                strncpy(host_buf, mock->string, sizeof(host_buf) - 1);
+                host_buf[sizeof(host_buf) - 1] = '\0';
+                
+                char* colon = strchr(host_buf, ':');
+                int port = 0;
+                if (colon) {
+                    *colon = '\0';
+                    port = atoi(colon + 1);
+                }
+                
+                strncpy(vm->net_mocks[vm->net_mock_count].host, host_buf, 255);
+                vm->net_mocks[vm->net_mock_count].port = port;
+                
+                if (strncmp(mock->valuestring, "unix:", 5) == 0) {
+                    strncpy(vm->net_mocks[vm->net_mock_count].unix_socket_path, mock->valuestring + 5, 255);
+                } else {
+                    strncpy(vm->net_mocks[vm->net_mock_count].unix_socket_path, mock->valuestring, 255);
+                }
+                vm->net_mock_count++;
+            }
+        }
+    }
+
     // 3. Package Resolution Stub (Phase 3.2)
     cJSON* packages = cJSON_GetObjectItemCaseSensitive(root, "packages");
     if (packages) {

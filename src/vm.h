@@ -176,6 +176,17 @@ typedef struct VM {
     bool allow_write;
     bool allow_run;
     bool allow_ffi;
+    
+    // Virtual Networking Mock Topologies
+    struct {
+        char host[256];
+        int port;
+        char unix_socket_path[256];
+    } net_mocks[16];
+    int net_mock_count;
+
+    int ipc_fd;
+    void* ipc_io; // Use void* to avoid EventLoop IOHandle dependency in vm.h
 } VM;
 
 // VM Lifecycle and API

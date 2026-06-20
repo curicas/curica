@@ -27,6 +27,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <netdb.h>
+#include <sys/un.h>
 
 #define ENFORCE_NET_ACCESS(vm) \
     if (!(vm)->allow_net) { \
@@ -356,6 +357,18 @@ static Value js_http_request(VM* vm, Value this_val, int arg_count, Value* args)
     req->is_tls = is_tls;
 
     int fd = -1;
+    bool is_mocked = false;
+    char mock_path[256];
+    
+    for (int i = 0; i < vm->net_mock_count; i++) {
+        if (vm->net_mocks[i].port == port && strcmp(vm->net_mocks[i].host, host) == 0) {
+            is_mocked = true;
+            strncpy(mock_path, vm->net_mocks[i].unix_socket_path, sizeof(mock_path) - 1);
+            mock_path[sizeof(mock_path) - 1] = '\0';
+            break;
+        }
+    }
+
     if (is_tls) {
         mbedtls_net_init(&req->server_fd);
         mbedtls_ssl_init(&req->ssl);
@@ -369,21 +382,29 @@ static Value js_http_request(VM* vm, Value this_val, int arg_count, Value* args)
         
         mbedtls_x509_crt_parse_file(&req->cacert, "/etc/ssl/certs/ca-certificates.crt");
 
-        char port_str[10];
-        snprintf(port_str, sizeof(port_str), "%d", port);
-        
-        int ret_conn = mbedtls_net_connect(&req->server_fd, host, port_str, MBEDTLS_NET_PROTO_TCP);
-        if (ret_conn != 0) {
-            http_free_req(req);
-            return VAL_UNDEFINED;
+        if (is_mocked) {
+            req->server_fd.fd = socket(AF_UNIX, SOCK_STREAM, 0);
+            struct sockaddr_un un_addr = {0};
+            un_addr.sun_family = AF_UNIX;
+            strncpy(un_addr.sun_path, mock_path, sizeof(un_addr.sun_path) - 1);
+            connect(req->server_fd.fd, (struct sockaddr*)&un_addr, sizeof(un_addr));
+        } else {
+            char port_str[10];
+            snprintf(port_str, sizeof(port_str), "%d", port);
+            int ret_conn = mbedtls_net_connect(&req->server_fd, host, port_str, MBEDTLS_NET_PROTO_TCP);
+            if (ret_conn != 0) {
+                http_free_req(req);
+                return VAL_UNDEFINED;
+            }
         }
+        
         mbedtls_net_set_nonblock(&req->server_fd);
         fd = req->server_fd.fd;
 
         ret = mbedtls_ssl_config_defaults(&req->conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
         if (ret != 0) printf("mbedtls_ssl_config_defaults failed: -0x%04x\n", -ret);
         
-        mbedtls_ssl_conf_authmode(&req->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+        mbedtls_ssl_conf_authmode(&req->conf, MBEDTLS_SSL_VERIFY_NONE); // Disable verification for mocks/dev
         mbedtls_ssl_conf_ca_chain(&req->conf, &req->cacert, NULL);
         mbedtls_ssl_conf_rng(&req->conf, mbedtls_ctr_drbg_random, &req->ctr_drbg);
         
@@ -395,24 +416,34 @@ static Value js_http_request(VM* vm, Value this_val, int arg_count, Value* args)
         
         mbedtls_ssl_set_bio(&req->ssl, &req->server_fd, mbedtls_net_send, mbedtls_net_recv, NULL);
     } else {
-        struct addrinfo hints, *res;
-        memset(&hints, 0, sizeof(hints));
-        hints.ai_family = AF_INET;
-        hints.ai_socktype = SOCK_STREAM;
+        if (is_mocked) {
+            fd = socket(AF_UNIX, SOCK_STREAM, 0);
+            if (fd < 0) { free(req->write_buf); free(req); return VAL_UNDEFINED; }
+            make_nonblock(fd);
+            struct sockaddr_un un_addr = {0};
+            un_addr.sun_family = AF_UNIX;
+            strncpy(un_addr.sun_path, mock_path, sizeof(un_addr.sun_path) - 1);
+            connect(fd, (struct sockaddr*)&un_addr, sizeof(un_addr));
+        } else {
+            struct addrinfo hints, *res;
+            memset(&hints, 0, sizeof(hints));
+            hints.ai_family = AF_INET;
+            hints.ai_socktype = SOCK_STREAM;
 
-        char port_str[16];
-        sprintf(port_str, "%d", port);
+            char port_str[16];
+            sprintf(port_str, "%d", port);
 
-        if (getaddrinfo(host, port_str, &hints, &res) != 0) {
-            free(req->write_buf); free(req); return VAL_UNDEFINED;
+            if (getaddrinfo(host, port_str, &hints, &res) != 0) {
+                free(req->write_buf); free(req); return VAL_UNDEFINED;
+            }
+
+            fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+            if (fd < 0) { freeaddrinfo(res); free(req->write_buf); free(req); return VAL_UNDEFINED; }
+            make_nonblock(fd);
+
+            connect(fd, res->ai_addr, res->ai_addrlen);
+            freeaddrinfo(res);
         }
-
-        fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-        if (fd < 0) { freeaddrinfo(res); free(req->write_buf); free(req); return VAL_UNDEFINED; }
-        make_nonblock(fd);
-
-        connect(fd, res->ai_addr, res->ai_addrlen);
-        freeaddrinfo(res);
     }
 
     req->fd = fd;
