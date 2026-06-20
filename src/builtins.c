@@ -2376,15 +2376,21 @@ Value js_process_dlopen(VM* vm, Value this_val, int arg_count, Value* args) {
     
     return new_exports;
 }
+extern const char* vfs_resolve_path(const char* original_path, char* resolved_buffer, size_t buffer_size);
+
 static bool is_file(const char* path) {
     struct stat st;
-    if (stat(path, &st) == 0 && S_ISREG(st.st_mode)) return true;
+    char host_path[1024];
+    vfs_resolve_path(path, host_path, sizeof(host_path));
+    if (stat(host_path, &st) == 0 && S_ISREG(st.st_mode)) return true;
     return false;
 }
 
 static bool is_dir(const char* path) {
     struct stat st;
-    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) return true;
+    char host_path[1024];
+    vfs_resolve_path(path, host_path, sizeof(host_path));
+    if (stat(host_path, &st) == 0 && S_ISDIR(st.st_mode)) return true;
     return false;
 }
 
@@ -2407,7 +2413,9 @@ static bool resolve_as_directory(const char* path, char* resolved) {
     char pkg_path[1024];
     snprintf(pkg_path, sizeof(pkg_path), "%s/package.json", path);
     if (is_file(pkg_path)) {
-        FILE* f = fopen(pkg_path, "r");
+        char host_pkg[1024];
+        vfs_resolve_path(pkg_path, host_pkg, sizeof(host_pkg));
+        FILE* f = fopen(host_pkg, "r");
         if (f) {
             char buf[4096];
             size_t n = fread(buf, 1, sizeof(buf)-1, f);
@@ -2667,7 +2675,9 @@ Value js_process_require(VM* vm, Value this_val, int arg_count, Value* args) {
         return object_get(module_obj, exports_key);
     }
     
-    FILE* f = fopen(resolved_path, "rb");
+    char host_path[1024];
+    vfs_resolve_path(resolved_path, host_path, sizeof(host_path));
+    FILE* f = fopen(host_path, "rb");
     if (!f) {
         Value err = create_system_error(vm, ENOENT, "open", resolved_path);
         vm_throw_error(vm, err);

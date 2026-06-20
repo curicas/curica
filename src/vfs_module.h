@@ -32,6 +32,7 @@ typedef struct {
 } VFSDisk;
 
 void vfs_init(void);
+int vfs_mount_overlay(const char* host_path, const char* vfs_path);
 
 // FHS Virtual System Interceptors
 int vfs_open(const char* path, int flags, int mode);

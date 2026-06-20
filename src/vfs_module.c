@@ -224,7 +224,31 @@ bool vfs_is_vfs_path(const char* path) {
     return (strncmp(path, "/disk/", 6) == 0);
 }
 
+typedef struct {
+    char host_path[256];
+    char vfs_path[256];
+} VFSOverlay;
+
+static VFSOverlay overlays[16];
+static int num_overlays = 0;
+
+int vfs_mount_overlay(const char* host_path, const char* vfs_path) {
+    if (num_overlays >= 16) return -1;
+    strncpy(overlays[num_overlays].host_path, host_path, 255);
+    strncpy(overlays[num_overlays].vfs_path, vfs_path, 255);
+    num_overlays++;
+    return 0;
+}
+
 const char* vfs_resolve_path(const char* original_path, char* resolved_buffer, size_t buffer_size) {
+    for (int i = 0; i < num_overlays; i++) {
+        size_t vfs_len = strlen(overlays[i].vfs_path);
+        if (strncmp(original_path, overlays[i].vfs_path, vfs_len) == 0) {
+            snprintf(resolved_buffer, buffer_size, "%s%s", overlays[i].host_path, original_path + vfs_len);
+            return resolved_buffer;
+        }
+    }
+
     if (!vfs_is_vfs_path(original_path)) {
         strncpy(resolved_buffer, original_path, buffer_size - 1);
         resolved_buffer[buffer_size - 1] = '\0';
