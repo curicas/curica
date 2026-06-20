@@ -18,6 +18,8 @@
 #define VFS_FD_STDERR  (VFS_FD_VIRTUAL_MASK | 4)
 #define VFS_FD_DSP     (VFS_FD_VIRTUAL_MASK | 5)
 #define VFS_FD_RANDOM  (VFS_FD_VIRTUAL_MASK | 6)
+#define VFS_FD_STDIN   (VFS_FD_VIRTUAL_MASK | 7)
+#define VFS_FD_TTY     (VFS_FD_VIRTUAL_MASK | 8)
 
 typedef enum {
     DISK_READONLY,

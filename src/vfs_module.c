@@ -289,7 +289,29 @@ int vfs_open(const char* path, int flags, int mode) {
     if (strcmp(p, "/dev/stderr") == 0) return VFS_FD_STDERR;
     if (strcmp(p, "/dev/dsp") == 0) return VFS_FD_DSP;
     if (strcmp(p, "/dev/random") == 0 || strcmp(p, "/dev/urandom") == 0) return VFS_FD_RANDOM;
-    
+    if (strcmp(p, "/dev/stdin") == 0) return VFS_FD_STDIN;
+    if (strcmp(p, "/dev/tty") == 0) return VFS_FD_TTY;
+
+    // Pseudo-Filesystems: dynamically generate proc and sys files on the fly into tmpfs
+    if (strncmp(p, "/proc/", 6) == 0 || strncmp(p, "/sys/", 5) == 0) {
+        int fd = tmpfs_open(p, O_RDWR | O_CREAT | O_TRUNC);
+        if (fd >= 0) {
+            char buffer[512] = {0};
+            if (strcmp(p, "/proc/self/stat") == 0) {
+                snprintf(buffer, sizeof(buffer), "1 (curica) R 0 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n");
+            } else if (strcmp(p, "/sys/cpu/count") == 0) {
+                snprintf(buffer, sizeof(buffer), "8\n"); // Mock CPU count
+            } else if (strcmp(p, "/sys/memory/limit") == 0) {
+                snprintf(buffer, sizeof(buffer), "1073741824\n"); // Mock 1GB
+            } else {
+                snprintf(buffer, sizeof(buffer), "unsupported pseudo-file\n");
+            }
+            int internal_fd = fd & ~VFS_FD_VIRTUAL_MASK & ~VFS_FD_TMPFS_MASK;
+            tmpfs_write(internal_fd, buffer, strlen(buffer));
+            tmpfs_lseek(internal_fd, 0, SEEK_SET);
+        }
+        return fd;
+    }
     // Intercept tmpfs paths dynamically mapping any /tmp or host equivalents mapped to tmpfs
     if (strncmp(path, "/tmp/", 5) == 0 || strncmp(p, "./.curica_disks/root/tmp/", 25) == 0) {
         return tmpfs_open(path, flags);
@@ -324,6 +346,9 @@ ssize_t vfs_read(int fd, void* buf, size_t count) {
         if (fd == VFS_FD_DSP || fd == VFS_FD_STDOUT || fd == VFS_FD_STDERR) {
             return 0; // EOF for outputs
         }
+        if (fd == VFS_FD_STDIN || fd == VFS_FD_TTY) {
+            return read(0, buf, count);
+        }
         errno = EBADF;
         return -1;
     }
@@ -335,8 +360,8 @@ ssize_t vfs_write(int fd, const void* buf, size_t count) {
         if (fd & VFS_FD_TMPFS_MASK) {
             return tmpfs_write(fd & ~VFS_FD_VIRTUAL_MASK & ~VFS_FD_TMPFS_MASK, buf, count);
         }
-        if (fd == VFS_FD_NULL || fd == VFS_FD_ZERO || fd == VFS_FD_RANDOM) return count; // discard
-        if (fd == VFS_FD_STDOUT) return write(1, buf, count);
+        if (fd == VFS_FD_NULL || fd == VFS_FD_ZERO || fd == VFS_FD_RANDOM || fd == VFS_FD_STDIN) return count; // discard
+        if (fd == VFS_FD_STDOUT || fd == VFS_FD_TTY) return write(1, buf, count);
         if (fd == VFS_FD_STDERR) return write(2, buf, count);
         if (fd == VFS_FD_DSP) {
             // Future: Write PCM frames to raw audio ring buffer
@@ -377,7 +402,11 @@ static void populate_dev_stat(struct stat* st) {
 }
 
 int vfs_stat(const char* path, struct stat* st) {
-    if (strncmp(path, "/tmp/", 5) == 0) {
+    if (strncmp(path, "/proc/", 6) == 0 || strncmp(path, "/sys/", 5) == 0) {
+        int fd = vfs_open(path, O_RDONLY, 0666);
+        if (fd >= 0) vfs_close(fd);
+    }
+    if (strncmp(path, "/tmp/", 5) == 0 || strncmp(path, "/proc/", 6) == 0 || strncmp(path, "/sys/", 5) == 0) {
         for (int i = 0; i < MAX_TMPFS_FILES; i++) {
             if (tmpfs_files[i].in_use && strcmp(tmpfs_files[i].path, path) == 0) {
                 memset(st, 0, sizeof(struct stat));
