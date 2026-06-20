@@ -17,9 +17,11 @@
 #include "builtins.h"
 #include "alloc.h"
 #include "wasm_export.h"
+#include "vfs_module.h"
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 static bool wamr_initialized = false;
 
@@ -270,34 +272,31 @@ int wasm_module_execute_cli(int argc, char** argv, char** custom_vfs_dirs, int c
 
     if (argc == 0) return 1;
 
-    // Resolve path
     char wasm_path[256];
-    snprintf(wasm_path, sizeof(wasm_path), "vfs/bin/%s", argv[0]);
-    // check if ends with .wasm, if not append .wasm
+    snprintf(wasm_path, sizeof(wasm_path), "/bin/%s", argv[0]);
     if (strlen(argv[0]) < 5 || strcmp(argv[0] + strlen(argv[0]) - 5, ".wasm") != 0) {
-        snprintf(wasm_path, sizeof(wasm_path), "vfs/bin/%s.wasm", argv[0]);
+        snprintf(wasm_path, sizeof(wasm_path), "/bin/%s.wasm", argv[0]);
     }
 
-    FILE* f = fopen(wasm_path, "rb");
-    if (!f) {
+    int fd = vfs_open(wasm_path, O_RDONLY, 0666);
+    if (fd < 0) {
         printf("curica: command not found: %s\n", argv[0]);
         return 127;
     }
 
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    off_t size = vfs_lseek(fd, 0, SEEK_END);
+    vfs_lseek(fd, 0, SEEK_SET);
 
     uint8_t* wasm_file_buf = malloc(size);
     if (!wasm_file_buf) {
-        fclose(f);
+        vfs_close(fd);
         return 1;
     }
 
-    size_t read_bytes = fread(wasm_file_buf, 1, size, f);
-    fclose(f);
+    ssize_t read_bytes = vfs_read(fd, wasm_file_buf, size);
+    vfs_close(fd);
 
-    if (read_bytes != (size_t)size) {
+    if (read_bytes != (ssize_t)size) {
         free(wasm_file_buf);
         return 1;
     }
@@ -322,12 +321,14 @@ int wasm_module_execute_cli(int argc, char** argv, char** custom_vfs_dirs, int c
      * to access `/etc` or `~/.ssh` will instantly yield an ENOENT/EPERM error 
      * because they do not exist within the virtual mapping.
      */
+    char root_buf[1024];
+    const char* root_host_path = vfs_resolve_path("/disk/root/", root_buf, sizeof(root_buf));
+    char root_map[2048];
+    snprintf(root_map, sizeof(root_map), "/::%s", root_host_path);
+
     const char* base_dirs[] = {
         "/workspace::.",
-        "/bin::vfs/bin",
-        "/lib::vfs/lib",
-        "/usr/include::vfs/include",
-        "/tmp::/tmp"
+        root_map
     };
     int base_dir_count = sizeof(base_dirs) / sizeof(base_dirs[0]);
     

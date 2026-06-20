@@ -13,6 +13,7 @@
  * frozen environments and Actually Portable Executables (APEs).
  */
 #include "child_process_module.h"
+#include "vfs_module.h"
 #include "alloc.h"
 #include "event_loop.h"
 #include <unistd.h>
@@ -105,8 +106,9 @@ static Value js_child_process_spawn(VM* vm, Value this_val, int arg_count, Value
         dup2(stderr_pipe[1], STDERR_FILENO);
         
         char wasm_path[256];
-        snprintf(wasm_path, sizeof(wasm_path), "vfs/bin/%s.wasm", cmd);
-        if (access(wasm_path, F_OK) == 0) {
+        snprintf(wasm_path, sizeof(wasm_path), "/bin/%s.wasm", cmd);
+        struct stat st;
+        if (vfs_stat(wasm_path, &st) == 0) {
             extern int wasm_module_execute_cli(int argc, char** argv, char** custom_vfs_dirs, int custom_vfs_count);
             int ret = wasm_module_execute_cli(exec_args_count, exec_args, vfs_dirs, vfs_dirs_count);
             exit(ret);

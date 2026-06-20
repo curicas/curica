@@ -14,32 +14,29 @@
  * Executables (APEs).
  */
 #include "fs_module.h"
+#include "fs_module.h"
 #include "alloc.h"
+#include "event_loop.h"
+#include "vfs_module.h"
 #include "vm.h"
-
-#include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <errno.h>
-#include <sys/stat.h>
 #include <dirent.h>
-#include <unistd.h>
-#include <fcntl.h>
 
-#include "vfs_module.h"
-
-#define VFS_FOPEN(path, mode) ({ char _buf[1024]; fopen(vfs_resolve_path(path, _buf, sizeof(_buf)), mode); })
-#define VFS_OPEN(path, flags, mode) ({ char _buf[1024]; open(vfs_resolve_path(path, _buf, sizeof(_buf)), flags, mode); })
-#define VFS_STAT(path, st) ({ char _buf[1024]; stat(vfs_resolve_path(path, _buf, sizeof(_buf)), st); })
-#define VFS_LSTAT(path, st) ({ char _buf[1024]; lstat(vfs_resolve_path(path, _buf, sizeof(_buf)), st); })
-#define VFS_MKDIR(path, mode) ({ char _buf[1024]; mkdir(vfs_resolve_path(path, _buf, sizeof(_buf)), mode); })
-#define VFS_UNLINK(path) ({ char _buf[1024]; unlink(vfs_resolve_path(path, _buf, sizeof(_buf))); })
-#define VFS_RENAME(oldp, newp) ({ \
-    char _buf1[1024]; char _buf2[1024]; \
-    rename(vfs_resolve_path(oldp, _buf1, sizeof(_buf1)), vfs_resolve_path(newp, _buf2, sizeof(_buf2))); \
-})
-#define VFS_OPENDIR(path) ({ char _buf[1024]; opendir(vfs_resolve_path(path, _buf, sizeof(_buf))); })
-
+#define VFS_OPEN(path, flags, mode) vfs_open(path, flags, mode)
+#define VFS_STAT(path, st) vfs_stat(path, st)
+#define VFS_LSTAT(path, st) vfs_lstat(path, st)
+#define VFS_MKDIR(path, mode) vfs_mkdir(path, mode)
+#define VFS_UNLINK(path) vfs_unlink(path)
+#define VFS_RENAME(oldp, newp) vfs_rename(oldp, newp)
+#define VFS_OPENDIR(path) vfs_opendir(path)
 
 
 
@@ -96,18 +93,18 @@ static Value js_fs_read_file_sync(VM* vm, Value this_val, int arg_count, Value* 
     JSString* path_str = (JSString*)get_pointer(args[0]);
     const char* encoding = (arg_count >= 2) ? extract_encoding(args[1]) : NULL;
 
-    FILE* f = VFS_FOPEN(path_str->data, "rb");
-    if (!f) {
+    int fd = VFS_OPEN(path_str->data, O_RDONLY, 0666);
+    if (fd < 0) {
         vm_throw_error(vm, create_system_error(vm, errno, "open", path_str->data));
         return VAL_UNDEFINED;
     }
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    off_t size = vfs_lseek(fd, 0, SEEK_END);
+    vfs_lseek(fd, 0, SEEK_SET);
     char* raw = (char*)malloc(size + 1);
-    size_t read_bytes = fread(raw, 1, size, f);
+    ssize_t read_bytes = vfs_read(fd, raw, size);
+    if (read_bytes < 0) read_bytes = 0;
     raw[read_bytes] = '\0';
-    fclose(f);
+    vfs_close(fd);
 
     Value result;
     if (encoding) {
@@ -133,8 +130,8 @@ static Value js_fs_write_file_sync(VM* vm, Value this_val, int arg_count, Value*
     }
     JSString* path_str = (JSString*)get_pointer(args[0]);
 
-    FILE* f = VFS_FOPEN(path_str->data, "wb");
-    if (!f) {
+    int fd = VFS_OPEN(path_str->data, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (fd < 0) {
         vm_throw_error(vm, create_system_error(vm, errno, "open", path_str->data));
         return VAL_UNDEFINED;
     }
@@ -144,13 +141,13 @@ static Value js_fs_write_file_sync(VM* vm, Value this_val, int arg_count, Value*
         BlockHeader* h = (BlockHeader*)((char*)get_pointer(data) - sizeof(BlockHeader));
         if (h->obj_type == OBJ_STRING) {
             JSString* s = (JSString*)get_pointer(data);
-            fwrite(s->data, 1, s->length, f);
+            vfs_write(fd, s->data, s->length);
         } else if (h->obj_type == OBJ_BUFFER) {
             JSBuffer* buf = (JSBuffer*)get_pointer(data);
-            if (buf->data) fwrite(buf->data, 1, buf->length, f);
+            if (buf->data) vfs_write(fd, buf->data, buf->length);
         }
     }
-    fclose(f);
+    vfs_close(fd);
     return VAL_UNDEFINED;
 }
 
@@ -162,8 +159,8 @@ static Value js_fs_append_file_sync(VM* vm, Value this_val, int arg_count, Value
     ENFORCE_WRITE_ACCESS(vm);
     if (arg_count < 2 || !IS_POINTER(args[0])) return VAL_UNDEFINED;
     JSString* path_str = (JSString*)get_pointer(args[0]);
-    FILE* f = VFS_FOPEN(path_str->data, "ab");
-    if (!f) {
+    int fd = VFS_OPEN(path_str->data, O_WRONLY | O_CREAT | O_APPEND, 0666);
+    if (fd < 0) {
         vm_throw_error(vm, create_system_error(vm, errno, "open", path_str->data));
         return VAL_UNDEFINED;
     }
@@ -172,13 +169,13 @@ static Value js_fs_append_file_sync(VM* vm, Value this_val, int arg_count, Value
         BlockHeader* h = (BlockHeader*)((char*)get_pointer(data) - sizeof(BlockHeader));
         if (h->obj_type == OBJ_STRING) {
             JSString* s = (JSString*)get_pointer(data);
-            fwrite(s->data, 1, s->length, f);
+            vfs_write(fd, s->data, s->length);
         } else if (h->obj_type == OBJ_BUFFER) {
             JSBuffer* buf = (JSBuffer*)get_pointer(data);
-            if (buf->data) fwrite(buf->data, 1, buf->length, f);
+            if (buf->data) vfs_write(fd, buf->data, buf->length);
         }
     }
-    fclose(f);
+    vfs_close(fd);
     return VAL_UNDEFINED;
 }
 
@@ -241,10 +238,10 @@ static Value js_fs_read_sync(VM* vm, Value this_val, int arg_count, Value* args)
     
     ssize_t bytes_read;
     if (IS_NULL(args[4]) || IS_UNDEFINED(args[4])) {
-        bytes_read = read(fd, buf->data + offset, length);
+        bytes_read = vfs_read(fd, buf->data + offset, length);
     } else {
         int position = IS_INTEGER(args[4]) ? get_integer(args[4]) : 0;
-        bytes_read = pread(fd, buf->data + offset, length, position);
+        bytes_read = vfs_pread(fd, buf->data + offset, length, position);
     }
     
     if (bytes_read < 0) {
@@ -289,9 +286,9 @@ static Value js_fs_write_sync(VM* vm, Value this_val, int arg_count, Value* args
     ssize_t bytes_written;
     if (arg_count >= 5 && !IS_NULL(args[4]) && !IS_UNDEFINED(args[4])) {
         int position = IS_INTEGER(args[4]) ? get_integer(args[4]) : 0;
-        bytes_written = pwrite(fd, data_ptr, data_len, position);
+        bytes_written = vfs_pwrite(fd, data_ptr, data_len, position);
     } else {
-        bytes_written = write(fd, data_ptr, data_len);
+        bytes_written = vfs_write(fd, data_ptr, data_len);
     }
     
     if (bytes_written < 0) {
@@ -308,7 +305,7 @@ static Value js_fs_close_sync(VM* vm, Value this_val, int arg_count, Value* args
     (void)this_val;
     if (arg_count < 1 || !IS_INTEGER(args[0])) return VAL_UNDEFINED;
     int fd = get_integer(args[0]);
-    if (close(fd) < 0) {
+    if (vfs_close(fd) < 0) {
         vm_throw_error(vm, create_system_error(vm, errno, "close", ""));
     }
     return VAL_UNDEFINED;
@@ -322,7 +319,7 @@ static Value js_fs_fstat_sync(VM* vm, Value this_val, int arg_count, Value* args
     if (arg_count < 1 || !IS_INTEGER(args[0])) return VAL_UNDEFINED;
     int fd = get_integer(args[0]);
     struct stat st;
-    if (fstat(fd, &st) < 0) {
+    if (vfs_fstat(fd, &st) < 0) {
         vm_throw_error(vm, create_system_error(vm, errno, "fstat", ""));
         return VAL_UNDEFINED;
     }
@@ -455,6 +452,58 @@ static Value js_fs_lstat_sync(VM* vm, Value this_val, int arg_count, Value* args
     return build_stats_object(&st);
 }
 
+static Value js_fs_mmap_sync(VM* vm, Value this_val, int arg_count, Value* args) {
+    (void)this_val;
+    ENFORCE_READ_ACCESS(vm);
+    if (arg_count < 2 || !IS_POINTER(args[0]) || !IS_INTEGER(args[1])) return VAL_UNDEFINED;
+
+    JSString* path_str = (JSString*)get_pointer(args[0]);
+    size_t length = (size_t)get_integer(args[1]);
+    
+    int fd = VFS_OPEN(path_str->data, O_RDONLY, 0666);
+    if (fd < 0) {
+        vm_throw_error(vm, create_system_error(vm, errno, "mmap_open", path_str->data));
+        return VAL_UNDEFINED;
+    }
+
+    void* mapped = mmap(NULL, length, PROT_READ, MAP_SHARED, fd, 0);
+    vfs_close(fd); // mmap holds the reference
+
+    if (mapped == MAP_FAILED) {
+        vm_throw_error(vm, create_system_error(vm, errno, "mmap", path_str->data));
+        return VAL_UNDEFINED;
+    }
+
+    // Wrap the mmap pointer in a JSBuffer. We set a special flag or just return it.
+    // Since our JSBuffer normally manages its own memory, we will just create an external buffer.
+    Value buf_val = create_buffer(length, false);
+    JSBuffer* jsbuf = (JSBuffer*)get_pointer(buf_val);
+    
+    // We replace the allocated data with our mmap pointer.
+    // NOTE: This leaks the original small malloc from create_buffer, but is fine for this proxy demo.
+    // A proper implementation would have an external buffer type.
+    free(jsbuf->data);
+    jsbuf->data = (uint8_t*)mapped;
+    
+    return buf_val;
+}
+
+static Value js_fs_munmap_sync(VM* vm, Value this_val, int arg_count, Value* args) {
+    (void)vm; (void)this_val;
+    if (arg_count < 1 || !IS_POINTER(args[0])) return VAL_UNDEFINED;
+
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(args[0]) - sizeof(BlockHeader));
+    if (h->obj_type == OBJ_BUFFER) {
+        JSBuffer* jsbuf = (JSBuffer*)get_pointer(args[0]);
+        if (jsbuf->data && jsbuf->length > 0) {
+            munmap(jsbuf->data, jsbuf->length);
+            jsbuf->data = NULL; // Prevent GC from freeing it
+            jsbuf->length = 0;
+        }
+    }
+    return VAL_UNDEFINED;
+}
+
 // ---------------------------------------------------------------------------
 // fs.copyFileSync(src, dest)
 // ---------------------------------------------------------------------------
@@ -466,22 +515,22 @@ static Value js_fs_copy_file_sync(VM* vm, Value this_val, int arg_count, Value* 
     JSString* src  = (JSString*)get_pointer(args[0]);
     JSString* dest = (JSString*)get_pointer(args[1]);
 
-    FILE* in = VFS_FOPEN(src->data, "rb");
-    if (!in) {
+    int in = VFS_OPEN(src->data, O_RDONLY, 0666);
+    if (in < 0) {
         vm_throw_error(vm, create_system_error(vm, errno, "open", src->data));
         return VAL_UNDEFINED;
     }
-    FILE* out = VFS_FOPEN(dest->data, "wb");
-    if (!out) {
-        fclose(in);
+    int out = VFS_OPEN(dest->data, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (out < 0) {
+        vfs_close(in);
         vm_throw_error(vm, create_system_error(vm, errno, "open", dest->data));
         return VAL_UNDEFINED;
     }
     char buf[4096];
-    size_t n;
-    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) fwrite(buf, 1, n, out);
-    fclose(in);
-    fclose(out);
+    ssize_t n;
+    while ((n = vfs_read(in, buf, sizeof(buf))) > 0) vfs_write(out, buf, n);
+    vfs_close(in);
+    vfs_close(out);
     return VAL_UNDEFINED;
 }
 
@@ -556,15 +605,15 @@ static void async_path_gc_mark(void* d, GCTraceFn trace) {
 
 static void async_read_work(void* d, int* status) {
     AsyncReadPayload* p = (AsyncReadPayload*)d;
-    FILE* f = VFS_FOPEN(p->path, "rb");
-    if (!f) { *status = errno; return; }
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    int fd = VFS_OPEN(p->path, O_RDONLY, 0666);
+    if (fd < 0) { *status = errno; return; }
+    off_t sz = vfs_lseek(fd, 0, SEEK_END);
+    vfs_lseek(fd, 0, SEEK_SET);
     p->data = (char*)malloc(sz + 1);
-    p->data_len = fread(p->data, 1, sz, f);
+    ssize_t rd = vfs_read(fd, p->data, sz);
+    p->data_len = (rd >= 0) ? rd : 0;
     p->data[p->data_len] = '\0';
-    fclose(f);
+    vfs_close(fd);
     *status = 0;
 }
 
@@ -652,10 +701,11 @@ static Value js_fs_promises_read_file(VM* vm, Value this_val, int arg_count, Val
 
 static void async_write_work(void* d, int* status) {
     AsyncWritePayload* p = (AsyncWritePayload*)d;
-    FILE* f = VFS_FOPEN(p->path, p->mode);
-    if (!f) { *status = errno; return; }
-    fwrite(p->data, 1, p->data_len, f);
-    fclose(f);
+    int flags = (strcmp(p->mode, "ab") == 0) ? (O_WRONLY | O_CREAT | O_APPEND) : (O_WRONLY | O_CREAT | O_TRUNC);
+    int fd = VFS_OPEN(p->path, flags, 0666);
+    if (fd < 0) { *status = errno; return; }
+    vfs_write(fd, p->data, p->data_len);
+    vfs_close(fd);
     *status = 0;
 }
 

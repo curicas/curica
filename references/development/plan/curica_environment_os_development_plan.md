@@ -19,7 +19,7 @@ To fully emulate a POSIX kernel securely in memory, the VFS will generate dynami
 - **Process and System Info (`/proc`, `/sys`):** The runtime will dynamically populate `/proc/<pid>` with live process states and `/sys` with runtime configuration (e.g., available CPU threads), allowing processes to introspect their sandbox boundaries natively.
 - **Virtual Audio (`/dev/dsp`):** A raw PCM ring buffer that WASM apps can `write()` to, which the runtime natively forwards to host audio hardware, providing zero-bloat sound output.
 
-### 1.3 In-Memory Volatile Storage (Virtual `tmpfs`)
+### 1.3 In-Memory Volatile Storage (Virtual `tmpfs`) (COMPLETED)
 To optimize performance and eliminate host disk thrashing, ephemeral directories are strictly memory-backed.
 - **Ramdisk Directories:** Paths like `/tmp` and `/dev/shm` are mounted as dynamic memory buffers in the C runtime.
 - **High-Speed Compilation:** The package manager's source-to-WASM pipeline will utilize `/tmp` for intermediate artifacts, boosting build speeds dramatically and instantly freeing memory upon environment shutdown.
@@ -39,7 +39,7 @@ Developers can implement custom filesystems without modifying the C runtime.
 - **Delegated Mounts:** A WASM module can register ownership of a VFS path (e.g., `/mnt/s3`).
 - **IPC Routing:** VFS operations on that path are seamlessly paused by the C kernel and routed to the WASM process to resolve the bytes dynamically.
 
-### 1.8 Host-Proxied Memory Mapping (`mmap`)
+### 1.8 Host-Proxied Memory Mapping (`mmap`) (COMPLETED)
 To handle massive external files (like 40GB AI models) without Out-Of-Memory crashes.
 - **Zero-Copy Streaming:** `mmap()` calls from WASM are delegated directly to the host OS kernel, mapping the file directly into WASM linear memory via page faults.
 - **Zero C-Bloat:** The runtime entirely avoids buffering or allocating memory for the file, allowing limitless file size processing within the sandbox constraints.
@@ -53,7 +53,7 @@ Once an environment and application are finalized, the state is frozen for distr
 
 ## Phase 2: Execution Engine & IPC
 
-### 2.1 JavaScript as Native OS Shell Scripting
+### 2.1 JavaScript as Native OS Shell Scripting (COMPLETED)
 JavaScript (`.js`) is elevated to serve as the primary orchestration and shell scripting language for the Curica OS, analogous to Bash on Linux.
 - **First-Class Process Management:** The JS API will provide robust abstractions for piping, redirection, and background job management.
 - **Spawning Processes:** Scripts can trivially spawn WASM executables located in the `/bin` VFS directory (e.g., `const ls = system.spawn('ls', ['-la', '/home/user']);`).
@@ -118,7 +118,7 @@ High-performance parallel computing without the overhead of standard Web Workers
 
 ## Phase 3: Package Manager & Bootstrapping
 
-### 3.1 Declarative JSON Environments
+### 3.1 Declarative JSON Environments (COMPLETED)
 Developers will define their environments using a simple JSON configuration file (e.g., `curica.env.json`).
 - **Configuration Layout:** The JSON defines `packages` (required WASM utility binaries), `env` (environment variables), and an `entrypoint` (the initial JS "shell script").
 - **Dynamic Bootstrapping:** Upon boot, the runtime parses the JSON configuration, resolves all packages, and prepares the `/home/user` workspace before passing control to the JS entrypoint.

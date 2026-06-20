@@ -24,6 +24,7 @@ int pledge(const char *promises, const char *execpromises);
 #include "formatter.h"
 #include "repl.h"
 #include "ts_stripper.h"
+#include "bootstrapper.h"
 
 // ZIP Format Signatures
 #define SIGNATURE_LOCAL_FILE_HEADER 0x04034b50
@@ -167,12 +168,17 @@ int main(int argc, char **argv) {
     vm.functions = prog->functions;
     vm.function_count = prog->function_count;
 
-    // Grant permissions by default to bundled executables
-    vm.allow_read = true;
-    vm.allow_write = true;
-    vm.allow_net = true;
-    vm.allow_ffi = true;
-    vm.allow_run = true;
+    char* boot_entry = bootstrap_environment(&vm, "/zip/curica.env.json");
+    if (!boot_entry) {
+      // Grant permissions by default to legacy bundled executables without config
+      vm.allow_read = true;
+      vm.allow_write = true;
+      vm.allow_net = true;
+      vm.allow_ffi = true;
+      vm.allow_run = true;
+    } else {
+      free(boot_entry); // Entrypoint ignored for bundled bytecodes
+    }
 
     vm_load_program(&vm, prog);
 
@@ -300,6 +306,65 @@ int main(int argc, char **argv) {
 
     vm_free(&vm);
     arena_free();
+    return 0;
+  } else if (strcmp(command, "boot") == 0) {
+    const char *env_file = "curica.env.json";
+    if (argc >= 3) {
+      env_file = argv[2];
+    }
+    arena_init(32);
+    EventLoop loop;
+    el_init(&loop);
+    VM vm;
+    vm_init(&vm);
+
+    char *entry_path = bootstrap_environment(&vm, env_file);
+    if (!entry_path) {
+      vm_free(&vm);
+      arena_free();
+      return 1;
+    }
+
+    extern unsigned char src_js_fetch_js[];
+    extern unsigned int src_js_fetch_js_len;
+    char *fetch_src = malloc(src_js_fetch_js_len + 1);
+    memcpy(fetch_src, src_js_fetch_js, src_js_fetch_js_len);
+    fetch_src[src_js_fetch_js_len] = '\0';
+    CompiledProgram *fetch_prog = compile_source(fetch_src);
+    free(fetch_src);
+    if (fetch_prog) {
+      vm_load_program(&vm, fetch_prog);
+      vm_run(&vm);
+    }
+
+    extern Value js_process_require(VM * vm, Value this_val, int arg_count,
+                                    Value *args);
+    char resolved_main_path[1024];
+    if (entry_path[0] == '/' ||
+        (entry_path[0] == '.' &&
+         (entry_path[1] == '/' ||
+          (entry_path[1] == '.' && entry_path[2] == '/')))) {
+      strncpy(resolved_main_path, entry_path,
+              sizeof(resolved_main_path) - 1);
+      resolved_main_path[sizeof(resolved_main_path) - 1] = '\0';
+    } else {
+      snprintf(resolved_main_path, sizeof(resolved_main_path), "./%s",
+               entry_path);
+    }
+    Value path_val =
+        create_string(resolved_main_path, strlen(resolved_main_path));
+    Value dirname_val = create_string(".", 1);
+    Value req_args[2] = {path_val, dirname_val};
+    js_process_require(&vm, VAL_UNDEFINED, 2, req_args);
+
+    vm_drain_next_tick(&vm);
+    vm_drain_microtasks(&vm);
+    el_run(&loop);
+
+    vm_free(&vm);
+    arena_free();
+    free(entry_path);
+    if (fetch_prog) free_compiled_program(fetch_prog);
     return 0;
   } else if (strcmp(command, "exec") == 0) {
     if (argc < 3) {
@@ -581,7 +646,17 @@ int main(int argc, char **argv) {
           "Error: Failed to inject payload into binary using zip command.\n");
     }
 
-    // 4. Handle Disks
+    // 4. Handle JSON and Disks
+    FILE* check_json = fopen("curica.env.json", "r");
+    if (check_json) {
+        fclose(check_json);
+        char env_cmd[1024];
+        snprintf(env_cmd, sizeof(env_cmd), "zip -qA %s curica.env.json", argv[3]);
+        if (system(env_cmd) != 0) {
+            fprintf(stderr, "Warning: Failed to inject curica.env.json into binary.\n");
+        }
+    }
+
     FILE *vfs_txt = fopen(".curica_vfs.txt", "w");
     bool has_disks = false;
 
@@ -662,6 +737,8 @@ int main(int argc, char **argv) {
            "directory\n");
     printf("  curica fmt <file.js>               - Format a JavaScript file in "
            "place\n");
+    printf("  curica boot [env.json]             - Boot environment from JSON "
+           "config\n");
     printf("  curica compile <in.js> <out.curi>  - Compile JS source code to "
            "Curica Bytecode\n");
     printf("  curica build <in.js> <out> [args]  - Compile JS and build a "
