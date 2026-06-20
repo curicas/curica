@@ -2,25 +2,14 @@
  * @file event_loop.c
  * @brief Async Event Loop — Microkernel OS I/O scheduler.
  *
- * In the Curica Environment OS Kernel, this module functions as the core async
- * task scheduler. It orchestrates non-blocking I/O polling, acting as the 
- * underlying async mechanism for spawning WASM processes and handling native 
- * JS systems shell scripting.
- *
- * The main loop calls poll() with a dynamically-built array that includes:
- *   - The thread-pool wakeup pipe read fd (always present when pool is live)
- *   - All registered IOHandles (TCP server accept fds, connected socket fds)
- *
- * Timer resolution is implemented via the poll() timeout parameter:
- * we compute the milliseconds until the next TimerHandle fires and pass
- * that as the timeout, so we wake up exactly when needed rather than
- * spinning.
- *
- * Each tick of el_run() strictly enforces the Capability-Based Security matrix 
- * constraints (zero-bloat validation without UIDs/GIDs) for every asynchronous 
- * operation initiated from frozen environments and Actually Portable Executables 
- * (APEs). It is crucial for piping I/O across the strict POSIX Virtual File 
- * System (VFS), including pseudo-filesystems (/dev, /proc), /bin, and /home/user.
+ * Implements component logic for the Curica Environment OS Kernel.
+ * Curica is a secure microkernel OS that employs a strict POSIX Virtual File System (VFS)
+ * with /bin, /home/user, and pseudo-filesystems (/dev, /proc). It uses JS natively as the
+ * systems shell scripting language to pipe I/O and spawn WASM processes, enforcing
+ * capability-based security (allow_run, allow_net, allow_read, allow_write, allow_ffi).
+ * Furthermore, the kernel freezes environments into Actually Portable Executables (APEs)
+ * and features Source Compilation Fallback, Virtual Networking Mocking, and
+ * Foreign Sandbox IPC attached.
  */
 #include "event_loop.h"
 #include "thread_pool.h"

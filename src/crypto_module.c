@@ -1,12 +1,15 @@
 /**
  * @file crypto_module.c
  * @brief Node.js 'crypto' native bindings for Curica Runtime.
- * 
- * This module provides cryptographic primitives necessary for modern web applications.
- * It includes a fully native C implementation of SHA-256 to avoid linking against 
- * OpenSSL or external crypto libraries, maintaining Curica's hermetic single-file 
- * binary philosophy. It also exposes `randomUUID` and `randomBytes` utilizing the 
- * OS-level CSPRNG (`getrandom`).
+ *
+ * Implements component logic for the Curica Environment OS Kernel.
+ * Curica is a secure microkernel OS that employs a strict POSIX Virtual File System (VFS)
+ * with /bin, /home/user, and pseudo-filesystems (/dev, /proc). It uses JS natively as the
+ * systems shell scripting language to pipe I/O and spawn WASM processes, enforcing
+ * capability-based security (allow_run, allow_net, allow_read, allow_write, allow_ffi).
+ * Furthermore, the kernel freezes environments into Actually Portable Executables (APEs)
+ * and features Source Compilation Fallback, Virtual Networking Mocking, and
+ * Foreign Sandbox IPC attached.
  */
 #include "crypto_module.h"
 #include "alloc.h"

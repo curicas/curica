@@ -1,17 +1,15 @@
 /**
  * @file builtins.c
  * @brief Core JavaScript Systems Shell Built-ins.
- * 
- * Under the new Curica Environment OS Kernel paradigm, JS operates natively as 
- * the systems shell scripting language. This file implements standard global 
- * objects, CommonJS require() injection, and native C-to-JS boundaries, allowing 
- * shell scripts to safely pipe I/O, spawn WASM processes, and interact with the 
- * strict POSIX Virtual File System (VFS), including /bin, /home/user, and 
- * pseudo-filesystems (/dev, /proc).
  *
- * All built-in capabilities are governed by a strict Capability-Based Security 
- * matrix (zero-bloat validation without UIDs/GIDs), ensuring secure execution 
- * when deployed as frozen environments within Actually Portable Executables (APEs).
+ * Implements component logic for the Curica Environment OS Kernel.
+ * Curica is a secure microkernel OS that employs a strict POSIX Virtual File System (VFS)
+ * with /bin, /home/user, and pseudo-filesystems (/dev, /proc). It uses JS natively as the
+ * systems shell scripting language to pipe I/O and spawn WASM processes, enforcing
+ * capability-based security (allow_run, allow_net, allow_read, allow_write, allow_ffi).
+ * Furthermore, the kernel freezes environments into Actually Portable Executables (APEs)
+ * and features Source Compilation Fallback, Virtual Networking Mocking, and
+ * Foreign Sandbox IPC attached.
  */
 #include "builtins.h"
 #include "alloc.h"

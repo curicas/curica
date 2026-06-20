@@ -2,19 +2,14 @@
  * @file net_module.c
  * @brief TCP Networking Subsystem for the Curica Environment OS Kernel.
  *
- * Architecture:
- *   - net.createServer(onConnection) returns a Server JS object, exposed to 
- *     JS operating natively as the systems shell scripting language.
- *   - Each method (listen, address, close) is a native function whose
- *     `env` field holds a make_double((uintptr_t)ServerHandle*) so the
- *     C handler can recover the struct securely.
- *   - On POLLIN, data callbacks fire. On POLLOUT, connect completion fires.
- *
- * All networking capabilities are subject to Curica's strict Capability-Based 
- * Security matrix (zero-bloat validation without UIDs/GIDs), restricting network 
- * access for frozen environments (APEs) and spawned WASM processes. Network I/O 
- * gracefully integrates with the strict POSIX Virtual File System (VFS) where 
- * sockets behave similarly to files in /bin, /home/user, /dev, or /proc.
+ * Implements component logic for the Curica Environment OS Kernel.
+ * Curica is a secure microkernel OS that employs a strict POSIX Virtual File System (VFS)
+ * with /bin, /home/user, and pseudo-filesystems (/dev, /proc). It uses JS natively as the
+ * systems shell scripting language to pipe I/O and spawn WASM processes, enforcing
+ * capability-based security (allow_run, allow_net, allow_read, allow_write, allow_ffi).
+ * Furthermore, the kernel freezes environments into Actually Portable Executables (APEs)
+ * and features Source Compilation Fallback, Virtual Networking Mocking, and
+ * Foreign Sandbox IPC attached.
  */
 #include "net_module.h"
 #include "alloc.h"

@@ -1,9 +1,15 @@
 /**
  * @file alloc.c
  * @brief Memory Management and Arena Allocator.
- * 
- * Implements a custom linear Arena allocator, Garbage Collection placeholders,
- * and JS Object hydration mechanisms using NaN-boxing.
+ *
+ * Implements component logic for the Curica Environment OS Kernel.
+ * Curica is a secure microkernel OS that employs a strict POSIX Virtual File System (VFS)
+ * with /bin, /home/user, and pseudo-filesystems (/dev, /proc). It uses JS natively as the
+ * systems shell scripting language to pipe I/O and spawn WASM processes, enforcing
+ * capability-based security (allow_run, allow_net, allow_read, allow_write, allow_ffi).
+ * Furthermore, the kernel freezes environments into Actually Portable Executables (APEs)
+ * and features Source Compilation Fallback, Virtual Networking Mocking, and
+ * Foreign Sandbox IPC attached.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -192,7 +198,10 @@ extern void gc_major(VM* vm);
  * @brief Hermetic Arena Memory Allocator
  *
  * `arena_alloc` provisions memory exclusively from a pre-allocated single contiguous
- * block of memory given by the OS at startup, entirely bypassing `malloc`/`free`.
+ * block of memory given by the host OS at startup, entirely bypassing system `malloc`/`free`.
+ * This hermetic seal is vital for the Curica Environment OS Kernel to maintain its strict 
+ * Sandbox isolation, ensuring APEs cannot exhaust host resources or perform out-of-bounds 
+ * allocations, supporting capability-based security.
  * 
  * Generational GC strategy:
  * 1. Attempts allocation in the fast bump-pointer Nursery (New Space).

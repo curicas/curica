@@ -2,15 +2,14 @@
  * @file wasm_module.c
  * @brief WebAssembly process subsystem for the Curica Environment OS Kernel.
  *
- * This module enables the microkernel OS to safely spawn WASM processes directly 
- * from JS operating natively as the systems shell scripting language. WebAssembly 
- * modules execute within a secure sandbox governed by a strict Capability-Based 
- * Security matrix (zero-bloat validation without UIDs/GIDs).
- *
- * It seamlessly interfaces with Curica's strict POSIX Virtual File System (VFS), 
- * allowing WASM processes access to /bin, /home/user, and pseudo-filesystems 
- * (/dev, /proc). This design easily supports frozen environments running as 
- * Actually Portable Executables (APEs) while piping I/O efficiently.
+ * Implements component logic for the Curica Environment OS Kernel.
+ * Curica is a secure microkernel OS that employs a strict POSIX Virtual File System (VFS)
+ * with /bin, /home/user, and pseudo-filesystems (/dev, /proc). It uses JS natively as the
+ * systems shell scripting language to pipe I/O and spawn WASM processes, enforcing
+ * capability-based security (allow_run, allow_net, allow_read, allow_write, allow_ffi).
+ * Furthermore, the kernel freezes environments into Actually Portable Executables (APEs)
+ * and features Source Compilation Fallback, Virtual Networking Mocking, and
+ * Foreign Sandbox IPC attached.
  */
 #include "wasm_module.h"
 #include "wasi_module.h"

@@ -1,17 +1,15 @@
 /**
  * @file websocket_module.c
  * @brief Native WebSocket Subsystem for the Curica Environment OS Kernel.
- * 
- * Implements a high-performance, RFC-6455 compliant WebSocket client natively.
- * It handles the WebSocket handshake over HTTP/HTTPS, masks frames securely,
- * and processes asynchronous network frames completely within the microkernel OS 
- * event loop.
  *
- * Integrated tightly with the strict Capability-Based Security matrix to ensure
- * zero-bloat validation without UIDs/GIDs when used by JS natively as the systems 
- * shell scripting language or by spawned WASM processes within frozen environments 
- * and Actually Portable Executables (APEs). Works harmoniously with the strict 
- * POSIX Virtual File System (VFS) (/bin, /home/user, /dev, /proc).
+ * Implements component logic for the Curica Environment OS Kernel.
+ * Curica is a secure microkernel OS that employs a strict POSIX Virtual File System (VFS)
+ * with /bin, /home/user, and pseudo-filesystems (/dev, /proc). It uses JS natively as the
+ * systems shell scripting language to pipe I/O and spawn WASM processes, enforcing
+ * capability-based security (allow_run, allow_net, allow_read, allow_write, allow_ffi).
+ * Furthermore, the kernel freezes environments into Actually Portable Executables (APEs)
+ * and features Source Compilation Fallback, Virtual Networking Mocking, and
+ * Foreign Sandbox IPC attached.
  */
 #include "vm.h"
 #include "event_loop.h"

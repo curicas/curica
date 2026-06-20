@@ -2,14 +2,14 @@
  * @file dgram_module.c
  * @brief UDP Datagram Subsystem for the Curica Environment OS Kernel.
  *
- * Provides UDP networking capabilities for the secure microkernel OS, primarily 
- * controlled by JS used natively as the systems shell scripting language. Datagram 
- * I/O handles network requests required by spawned WASM processes or shell scripts.
- *
- * It is governed strictly by the Capability-Based Security matrix (zero-bloat 
- * validation without UIDs/GIDs). Security privileges control access across the 
- * strict POSIX Virtual File System (VFS) layout (/bin, /home/user, /dev, /proc) 
- * for frozen environments and Actually Portable Executables (APEs).
+ * Implements component logic for the Curica Environment OS Kernel.
+ * Curica is a secure microkernel OS that employs a strict POSIX Virtual File System (VFS)
+ * with /bin, /home/user, and pseudo-filesystems (/dev, /proc). It uses JS natively as the
+ * systems shell scripting language to pipe I/O and spawn WASM processes, enforcing
+ * capability-based security (allow_run, allow_net, allow_read, allow_write, allow_ffi).
+ * Furthermore, the kernel freezes environments into Actually Portable Executables (APEs)
+ * and features Source Compilation Fallback, Virtual Networking Mocking, and
+ * Foreign Sandbox IPC attached.
  */
 #include "dgram_module.h"
 #include "alloc.h"

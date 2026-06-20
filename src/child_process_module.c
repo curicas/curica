@@ -1,16 +1,15 @@
 /**
  * @file child_process_module.c
  * @brief Process spawning subsystem for the Curica Environment OS Kernel.
- * 
- * This module allows JS natively acting as the systems shell scripting language 
- * to seamlessly execute binaries and spawn WASM processes within the secure 
- * microkernel OS. It handles piping I/O (stdin, stdout, stderr) robustly.
  *
- * Process execution relies heavily on the strict POSIX Virtual File System (VFS) 
- * containing /bin, /home/user, and pseudo-filesystems (/dev, /proc). All process 
- * control operates under the strict Capability-Based Security matrix, enforcing 
- * zero-bloat validation without UIDs/GIDs, ensuring absolute isolation for 
- * frozen environments and Actually Portable Executables (APEs).
+ * Implements component logic for the Curica Environment OS Kernel.
+ * Curica is a secure microkernel OS that employs a strict POSIX Virtual File System (VFS)
+ * with /bin, /home/user, and pseudo-filesystems (/dev, /proc). It uses JS natively as the
+ * systems shell scripting language to pipe I/O and spawn WASM processes, enforcing
+ * capability-based security (allow_run, allow_net, allow_read, allow_write, allow_ffi).
+ * Furthermore, the kernel freezes environments into Actually Portable Executables (APEs)
+ * and features Source Compilation Fallback, Virtual Networking Mocking, and
+ * Foreign Sandbox IPC attached.
  */
 #include "child_process_module.h"
 #include "vfs_module.h"

@@ -1,14 +1,15 @@
 /**
  * @file vfs_module.c
  * @brief Virtual File System (VFS) Kernel Router
- * 
- * Intercepts POSIX file system access originating from WASM and JS user-space
- * processes. Dynamically routes standard file operations enforcing a strict 
- * POSIX FHS compliance (e.g. /bin, /usr, /home/user).
- * 
- * Handles reading from the frozen internal zip payload (APE), 
- * dynamic host overlays mounted via `--attach`, and manages
- * in-memory volatile tmpfs ramdisks.
+ *
+ * Implements component logic for the Curica Environment OS Kernel.
+ * Curica is a secure microkernel OS that employs a strict POSIX Virtual File System (VFS)
+ * with /bin, /home/user, and pseudo-filesystems (/dev, /proc). It uses JS natively as the
+ * systems shell scripting language to pipe I/O and spawn WASM processes, enforcing
+ * capability-based security (allow_run, allow_net, allow_read, allow_write, allow_ffi).
+ * Furthermore, the kernel freezes environments into Actually Portable Executables (APEs)
+ * and features Source Compilation Fallback, Virtual Networking Mocking, and
+ * Foreign Sandbox IPC attached.
  */
 #include "vfs_module.h"
 #include <stdio.h>

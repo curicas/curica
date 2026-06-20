@@ -15,11 +15,15 @@ Unlike traditional Node.js versions which required heavy third-party packages or
 - Directly handles framing, masking, and continuation protocols in C.
 - Binds to the event loop's Poll phase for instantaneous bidirectional communication.
 
-### 3. Web Workers (`src/worker_module.c`)
+### 3. Virtual Networking Mocks (Phase 2.4)
+- **Hermetic Interception**: Because Curica is built as a microkernel, untrusted processes (like WASM modules and 3rd party JS) cannot access host network interfaces.
+- **`curica.env.json` Proxies**: Curica acts as a secure proxy router. Developers can define `"network_mocks": {"localhost:8080": "unix:/tmp/mock.sock"}` to transparently reroute `fetch()` and TCP connections to local Unix sockets, bypassing the host networking stack entirely for deep sandbox validation.
+
+### 4. Web Workers (`src/worker_module.c`)
 - Emulates the browser `Worker` specification by spinning up entirely isolated Curica Virtual Machines in background POSIX threads.
 - Message passing (`postMessage`) securely transfers data structures across VM boundaries without shared memory locking overhead, using thread-safe IPC queues that wake the main event loop dynamically.
 
-### 4. Node.js `worker_threads` Parity (`src/worker_threads_module.c`)
+### 5. Node.js `worker_threads` Parity (`src/worker_threads_module.c`)
 - Provides strict backwards compatibility with Node.js ecosystem packages relying on the `worker_threads` core module.
 - Scaffolds the `Worker` and `MessageChannel` APIs seamlessly over Curica's native POSIX thread pools, enabling standard Node patterns without external polyfills.
 

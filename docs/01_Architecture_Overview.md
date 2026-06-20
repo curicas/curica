@@ -20,3 +20,11 @@ This allows the entire JavaScript engine, compiler, and standard library to be c
 - **WebAssembly & Database (`src/wasm_module.c`, `src/wasi_module.c`, `src/sqlite_module.c`)**: Zero-overhead Wasm3 interpreter, WASI execution layer, and synchronous SQLite integration.
 - **Extended OS Interfaces**: Unabstracted Native Syscalls (`src/os_module.c`), Dynamic Library FFI (`src/ffi_module.c`), Local KV Storage (`src/kv_store.c`), and Edge Sandboxing (`src/sandbox.c`).
 - **Media & Hardware Bridges**: Machine Learning Inference (`src/ml_module.c`) and Native Windowing (`src/webview_module.c`).
+
+## OS Kernel Paradigm
+
+As Curica has evolved into a full Virtual Operating System Kernel, it implements key phases to reinforce its microkernel architecture:
+
+- **Phase 1.5: Foreign Sandbox IPC Communication**: Curica allows external processes to securely connect to the isolated VFS environment via Unix Sockets attached over the CLI (`--attach`). These are exposed cleanly to the executing JS via `process.ipcSocket`.
+- **Phase 2.4: Virtual Networking Mocks**: Since WASM and untrusted JS processes cannot touch host network interfaces directly, Curica acts as a proxy router. In `curica.env.json`, `"network_mocks": {"localhost:8080": "unix:/tmp/mock.sock"}` transparently redirects TCP/HTTP requests over local Unix sockets for deep sandbox validation.
+- **Phase 3.3: Source Compilation Fallback**: Native package management ensures determinism. If a requested WebAssembly package is not found locally or remotely, `package_manager.js` falls back to fetching the C source code. It uses `child_process.execSync` to natively compile it (enforced by the explicit `allow_run` capability), dynamically loading the resulting binary directly into the active VFS.

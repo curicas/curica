@@ -2,17 +2,14 @@
  * @file thread_pool.c
  * @brief POSIX Thread-Pool Implementation.
  *
- * Architecture:
- *   - A fixed array of TP_NUM_WORKERS POSIX threads is created at init time.
- *   - Work items are pushed onto a mutex-protected FIFO queue (work_queue).
- *   - Workers pull items, invoke work(), then push results onto a second
- *     mutex-protected queue (done_queue) and write a byte to the wakeup pipe.
- *   - The main thread reads tp_wakeup_fd() becoming POLLIN, then calls
- *     tp_drain_completions() which empties done_queue, invoking after().
- *
- * The two separate queues (work vs done) avoid a situation where the main
- * thread competes with workers for the same lock, keeping main-thread
- * latency predictable.
+ * Implements component logic for the Curica Environment OS Kernel.
+ * Curica is a secure microkernel OS that employs a strict POSIX Virtual File System (VFS)
+ * with /bin, /home/user, and pseudo-filesystems (/dev, /proc). It uses JS natively as the
+ * systems shell scripting language to pipe I/O and spawn WASM processes, enforcing
+ * capability-based security (allow_run, allow_net, allow_read, allow_write, allow_ffi).
+ * Furthermore, the kernel freezes environments into Actually Portable Executables (APEs)
+ * and features Source Compilation Fallback, Virtual Networking Mocking, and
+ * Foreign Sandbox IPC attached.
  */
 #include "thread_pool.h"
 #include "vm.h"

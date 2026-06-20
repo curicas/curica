@@ -1,18 +1,15 @@
 /**
  * @file vm.c
  * @brief Core Virtual Machine implementation for the Curica Environment OS Kernel.
- * 
- * Handles the bytecode dispatch loop, CallFrame stack management, context switching,
- * NaN-boxed value operations, and async coroutine (ucontext_t) execution for the 
- * secure microkernel OS.
  *
- * The VM serves as the execution engine using JS natively as the systems shell 
- * scripting language to pipe I/O and spawn WASM processes. Execution is governed 
- * by a strict Capability-Based Security matrix, guaranteeing zero-bloat validation 
- * without UIDs/GIDs. This ensures secure sandbox containment when operating over 
- * the strict POSIX Virtual File System (VFS) (including /bin, /home/user, /dev, 
- * /proc) or when running frozen environments packaged as Actually Portable 
- * Executables (APEs).
+ * Implements component logic for the Curica Environment OS Kernel.
+ * Curica is a secure microkernel OS that employs a strict POSIX Virtual File System (VFS)
+ * with /bin, /home/user, and pseudo-filesystems (/dev, /proc). It uses JS natively as the
+ * systems shell scripting language to pipe I/O and spawn WASM processes, enforcing
+ * capability-based security (allow_run, allow_net, allow_read, allow_write, allow_ffi).
+ * Furthermore, the kernel freezes environments into Actually Portable Executables (APEs)
+ * and features Source Compilation Fallback, Virtual Networking Mocking, and
+ * Foreign Sandbox IPC attached.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -148,8 +145,11 @@ static void vm_switch_program(VM* vm, CompiledProgram* prog) {
  * 2. Synchronous JavaScript (Push CallFrame -> `vm_run` -> Pop CallFrame).
  * 3. Asynchronous JavaScript (`is_async`):
  *    - Dynamically provisions a stackful `ucontext_t` Coroutine (`VMCoroutine`).
- *    - Marshals arguments into the Coroutine's isolated register stack.
+ *    - Marshals arguments into the Coroutine's isolated register stack, ensuring sandbox containment.
  *    - Spawns the coroutine via `vm_coro_resume` and synchronously returns an unfulfilled `JSPromise`.
+ * 
+ * Crucially, this dispatch loop respects capability-based security and isolates execution environments 
+ * from the underlying POSIX host, making Curica a true microkernel OS.
  */
 Value vm_call_function(VM* vm, Value func_val, int arg_count, Value* args) {
     if (!IS_POINTER(func_val)) {

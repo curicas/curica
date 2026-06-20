@@ -14,6 +14,7 @@ Curica boots an isolated Virtual File System strictly compliant with the POSIX F
 - **`/home/user`**: The native developer workspace.
 - **Pseudo-Filesystems (`/dev`, `/proc`, `/sys`)**: Dynamically generated in-memory interfaces. Features include `/dev/null`, process trees in `/proc/<pid>`, and raw PCM audio output via `/dev/dsp`.
 - **In-Memory `tmpfs`**: Ephemeral ramdisk directories (`/tmp`, `/dev/shm`) ensuring blazingly fast intermediate compilation without host-disk thrashing.
+- **Foreign Sandbox IPC (Phase 1.5)**: Curica allows bridging isolated processes via Unix Sockets attached over the CLI (`--attach`). These are exposed seamlessly to the environment via `process.ipcSocket`.
 
 ### 2. JavaScript as the Native Shell Language
 Instead of Bash, Curica uses **JavaScript (ES2025)** as its native orchestration and shell scripting language. JS processes can seamlessly spawn WebAssembly binaries, pipe standard I/O streams natively via the Event Loop, and manage background jobs.
@@ -21,7 +22,7 @@ Instead of Bash, Curica uses **JavaScript (ES2025)** as its native orchestration
 ### 3. Declarative Environments & Package Management
 Environments are defined declaratively via a `curica.env.json` configuration. The native package manager guarantees deterministic environments for all users:
 1. **Remote Binary Check:** Curica securely downloads verified pre-compiled WASM binaries from the official GitHub `packages` repository.
-2. **Source-to-WASM Fallback:** If a binary is missing, Curica automatically downloads the source code and compiles it into WebAssembly locally via an embedded toolchain.
+2. **Source Compilation Fallback (Phase 3.3):** If a WebAssembly package is not found, `package_manager.js` fetches the C source, uses `child_process.execSync` to compile it natively (enforced by the `allow_run` capability), and dynamically loads the resulting binary into the VFS.
 
 ### 4. Immutable APE Freezing
 When a developer runs `curica build`, the active VFS (including all configured packages, custom `--attach` host overlays, and internal pseudo-filesystems) is completely frozen and baked into the final APE bundle. The result is a single binary that instantly deserializes its own virtual OS upon execution.
@@ -34,7 +35,7 @@ Curica is designed as an impenetrable sandbox capable of safely executing untrus
 - **Dynamic Host Permissions (JIT):** External dependencies (like massive `.gguf` AI models) can be mounted securely at runtime via CLI grants (`--grant-read`) or interactive Deno-style JIT prompts.
 - **Host-Proxied Memory Mapping (`mmap`):** Massive external files are mapped directly into WASM linear memory using the host kernel's page faults, guaranteeing zero-copy streaming without C-runtime memory bloat.
 - **WASM FUSE (User-Space Filesystems):** WASM modules can take ownership of VFS paths (e.g., `/mnt/s3`), intercepting POSIX reads natively without adding C code.
-- **Virtual Networking & Proxies:** WASM processes cannot touch host network interfaces. Curica acts as a secure proxy router, redirecting virtual outbound TCP connections natively or mocking loopback traffic via IPC channels.
+- **Virtual Networking Mocks (Phase 2.4):** WASM processes cannot directly touch host network interfaces. Curica acts as a secure proxy router. `curica.env.json` allows `"network_mocks": {"localhost:8080": "unix:/tmp/mock.sock"}`, which transparently redirects TCP/HTTP requests over local Unix sockets for deep sandbox validation.
 
 ## 🧠 Core Execution Engine
 
