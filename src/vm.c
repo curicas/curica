@@ -2847,6 +2847,8 @@ do_await: {
     
     // --- SUSPENDS HERE ---
     
+    vm_switch_program(vm, frame->prog);
+    
     if (vm->current_coro->is_error) {
         vm->current_coro->is_error = false;
         vm_throw_error(vm, vm->current_coro->result);

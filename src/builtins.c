@@ -642,6 +642,18 @@ static Value parse_json_value(VM* vm, const char** ptr) {
         }
         return obj;
     }
+    if (**ptr == '[') {
+        (*ptr)++;
+        Value arr = create_array(8);
+        while (**ptr) {
+            while (**ptr == ' ' || **ptr == '\n' || **ptr == '\r' || **ptr == '\t') (*ptr)++;
+            if (**ptr == ']') { (*ptr)++; break; }
+            if (**ptr == ',') { (*ptr)++; continue; }
+            Value val = parse_json_value(vm, ptr);
+            array_push(arr, val);
+        }
+        return arr;
+    }
     if (**ptr == '"') {
         (*ptr)++;
         const char* start = *ptr;

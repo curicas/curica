@@ -202,6 +202,21 @@ int main(int argc, char **argv) {
       vm_run(&vm);
     }
 
+    extern unsigned char src_js_package_manager_js[];
+    extern unsigned int src_js_package_manager_js_len;
+    char *pkg_src = malloc(src_js_package_manager_js_len + 1);
+    memcpy(pkg_src, src_js_package_manager_js, src_js_package_manager_js_len);
+    pkg_src[src_js_package_manager_js_len] = '\0';
+    CompiledProgram *pkg_prog = compile_source(pkg_src);
+    free(pkg_src);
+    if (pkg_prog) {
+      vm_load_program(&vm, pkg_prog);
+      vm_run(&vm);
+      vm_drain_next_tick(&vm);
+      vm_drain_microtasks(&vm);
+      el_run(&loop);
+    }
+
     vm_load_program(&vm, prog);
     vm_run(&vm);
     vm_drain_next_tick(&vm);
@@ -339,6 +354,26 @@ int main(int argc, char **argv) {
 
     extern Value js_process_require(VM * vm, Value this_val, int arg_count,
                                     Value *args);
+
+    // Expose require globally for package manager
+    Value require_str = create_string("require", 7);
+    Value require_fn = create_native_function((void *)js_process_require, require_str);
+    object_set(vm.global_obj, require_str, require_fn);
+
+    extern unsigned char src_js_package_manager_js[];
+    extern unsigned int src_js_package_manager_js_len;
+    char *pkg_src = malloc(src_js_package_manager_js_len + 1);
+    memcpy(pkg_src, src_js_package_manager_js, src_js_package_manager_js_len);
+    pkg_src[src_js_package_manager_js_len] = '\0';
+    CompiledProgram *pkg_prog = compile_source(pkg_src);
+    free(pkg_src);
+    if (pkg_prog) {
+      vm_load_program(&vm, pkg_prog);
+      vm_run(&vm);
+      vm_drain_next_tick(&vm);
+      vm_drain_microtasks(&vm);
+      el_run(&loop);
+    }
     char resolved_main_path[1024];
     if (entry_path[0] == '/' ||
         (entry_path[0] == '.' &&

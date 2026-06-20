@@ -369,10 +369,11 @@ static Value js_http_request(VM* vm, Value this_val, int arg_count, Value* args)
         
         mbedtls_x509_crt_parse_file(&req->cacert, "/etc/ssl/certs/ca-certificates.crt");
 
-        char port_str[16];
-        sprintf(port_str, "%d", port);
-        if ((ret = mbedtls_net_connect(&req->server_fd, host, port_str, MBEDTLS_NET_PROTO_TCP)) != 0) {
-            printf("mbedtls_net_connect failed: -0x%04x\n", -ret);
+        char port_str[10];
+        snprintf(port_str, sizeof(port_str), "%d", port);
+        
+        int ret_conn = mbedtls_net_connect(&req->server_fd, host, port_str, MBEDTLS_NET_PROTO_TCP);
+        if (ret_conn != 0) {
             http_free_req(req);
             return VAL_UNDEFINED;
         }

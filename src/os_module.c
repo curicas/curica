@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <termios.h>
+#include <string.h>
 
 // Curica.os.syscall(sysno, arg1, arg2, arg3, arg4, arg5, arg6)
 static Value os_syscall(VM* vm, Value this_val, int arg_count, Value* args) {
@@ -80,12 +81,26 @@ static Value js_os_setRawMode(VM* vm, Value this_val, int arg_count, Value* args
     return make_boolean(true);
 }
 
+// Curica.os.getenv(name)
+static Value js_os_getenv(VM* vm, Value this_val, int arg_count, Value* args) {
+    (void)this_val;
+    if (arg_count < 1 || !IS_POINTER(args[0])) return VAL_UNDEFINED;
+    BlockHeader* h = (BlockHeader*)((char*)get_pointer(args[0]) - sizeof(BlockHeader));
+    if (h->obj_type != OBJ_STRING) return VAL_UNDEFINED;
+    
+    JSString* name_str = (JSString*)get_pointer(args[0]);
+    char* val = getenv(name_str->data);
+    if (!val) return VAL_UNDEFINED;
+    return create_string(val, strlen(val));
+}
+
 Value build_os_module(VM* vm) {
     Value os_obj = create_object();
     
     object_set(os_obj, create_string("syscall", 7), create_native_function((void*)os_syscall, create_string("syscall", 7)));
     object_set(os_obj, create_string("isatty", 6), create_native_function((void*)js_os_isatty, create_string("isatty", 6)));
     object_set(os_obj, create_string("setRawMode", 10), create_native_function((void*)js_os_setRawMode, create_string("setRawMode", 10)));
+    object_set(os_obj, create_string("getenv", 6), create_native_function((void*)js_os_getenv, create_string("getenv", 6)));
     
     return os_obj;
 }

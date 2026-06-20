@@ -85,19 +85,19 @@ function parseUrl(urlStr) {
     var path = "/";
     
     var idx = urlStr.indexOf("://");
-    if (idx != -1) {
+    if (idx >= 0) {
         protocol = urlStr.substring(0, idx);
         urlStr = urlStr.substring(idx + 3);
     }
     
     var slashIdx = urlStr.indexOf("/");
-    if (slashIdx != -1) {
+    if (slashIdx >= 0) {
         path = urlStr.substring(slashIdx);
         urlStr = urlStr.substring(0, slashIdx);
     }
     
     var colonIdx = urlStr.indexOf(":");
-    if (colonIdx != -1) {
+    if (colonIdx >= 0) {
         var portStr = urlStr.substring(colonIdx + 1);
         port = parseInt(portStr, 10);
         hostname = urlStr.substring(0, colonIdx);
@@ -181,7 +181,7 @@ function fetch(input, init) {
             if ((status == 301 || status == 302 || status == 307 || status == 308) && redirect == 'follow') {
                 var loc = headers.get('location');
                 if (loc) {
-                    if (loc.indexOf('://') == -1) {
+                    if (loc.indexOf('://') < 0) {
                         var defaultPort = false;
                         if (url.protocol == "https" && url.port == 443) {
                             defaultPort = true;

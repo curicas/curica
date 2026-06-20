@@ -27,6 +27,7 @@ char* bootstrap_environment(VM* vm, const char* json_path) {
         // If file doesn't exist, it's not a fatal error for some modes, but we return NULL to indicate it wasn't found.
         return NULL;
     }
+    setenv("CURICA_ENV_FILE", json_path, 1);
 
     cJSON* root = cJSON_Parse(json_data);
     free(json_data);

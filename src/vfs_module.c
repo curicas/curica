@@ -192,7 +192,11 @@ void vfs_init(void) {
                 disks[num_disks].mode = DISK_WRITABLE;
                 // Create local directory for writable disk
                 char local_dir[256];
-                snprintf(local_dir, sizeof(local_dir), "./.curica_disks/%s", name);
+                if (strcmp(name, "packages") == 0) {
+                    snprintf(local_dir, sizeof(local_dir), "./packages");
+                } else {
+                    snprintf(local_dir, sizeof(local_dir), "./.curica_disks/%s", name);
+                }
                 create_dir_recursive(local_dir);
                 
                 // Initialize strict POSIX FHS tree in the root writable workspace
@@ -261,7 +265,11 @@ const char* vfs_resolve_path(const char* original_path, char* resolved_buffer, s
     if (disk->mode == DISK_READONLY) {
         snprintf(resolved_buffer, buffer_size, "/zip/%s%s", disk->name, rest_of_path);
     } else {
-        snprintf(resolved_buffer, buffer_size, "./.curica_disks/%s%s", disk->name, rest_of_path);
+        if (strcmp(disk->name, "packages") == 0) {
+            snprintf(resolved_buffer, buffer_size, "./packages%s", rest_of_path);
+        } else {
+            snprintf(resolved_buffer, buffer_size, "./.curica_disks/%s%s", disk->name, rest_of_path);
+        }
     }
 
     return resolved_buffer;
@@ -286,6 +294,13 @@ int vfs_open(const char* path, int flags, int mode) {
         return tmpfs_open(path, flags);
     }
     
+    // Pass-through essential host networking files for DNS and SSL
+    if (strcmp(path, "/etc/resolv.conf") == 0 || 
+        strcmp(path, "/etc/hosts") == 0 || 
+        strcmp(path, "/etc/ssl/certs/ca-certificates.crt") == 0) {
+        return open(path, flags, mode);
+    }
+
     return open(p, flags, mode);
 }
 
@@ -376,6 +391,11 @@ int vfs_stat(const char* path, struct stat* st) {
 
     char buf[1024];
     const char* p = vfs_resolve_path(path, buf, sizeof(buf));
+    if (strcmp(path, "/etc/resolv.conf") == 0 || 
+        strcmp(path, "/etc/hosts") == 0 || 
+        strcmp(path, "/etc/ssl/certs/ca-certificates.crt") == 0) {
+        p = path;
+    }
     if (strncmp(p, "/dev/", 5) == 0) { populate_dev_stat(st); return 0; }
     return stat(p, st);
 }
@@ -383,6 +403,11 @@ int vfs_stat(const char* path, struct stat* st) {
 int vfs_lstat(const char* path, struct stat* st) {
     char buf[1024];
     const char* p = vfs_resolve_path(path, buf, sizeof(buf));
+    if (strcmp(path, "/etc/resolv.conf") == 0 || 
+        strcmp(path, "/etc/hosts") == 0 || 
+        strcmp(path, "/etc/ssl/certs/ca-certificates.crt") == 0) {
+        p = path;
+    }
     if (strncmp(p, "/dev/", 5) == 0) { populate_dev_stat(st); return 0; }
     return lstat(p, st);
 }
